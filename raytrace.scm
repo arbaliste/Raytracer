@@ -145,6 +145,10 @@
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
+(define (mesh-create encoded color)
+  ; Creates a mesh from an encoded list of triplets of vecs
+  ; Returns: list of triangles
+  #f)
 
 ; Raytracing
 (define (ray-closest ray)
@@ -222,9 +226,12 @@
 (define light-intensity 1)
 (define (sky-color ray)
   vec-zero)
+(define encoded-triangles nil)
 (define objects
-  (list
-   (sphere-create 1 (vec-create 0 0 0) (vec-create 1 0 0))))
+  (append
+    (list
+      (sphere-create 1 (vec-create 0 0 0) (vec-create 1 0 0)))
+    (mesh-create encoded-triangles (vec-create 0 0 1))))
 
 ; Main draw function
 (define (draw)
