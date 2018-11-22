@@ -25,10 +25,6 @@
     (exact-round (exact->inexact (* 255 r)))
     (exact-round (exact->inexact (* 255 g)))
     (exact-round (exact->inexact (* 255 b)))))
-(define (reduce func l)
-  (if (null? (cdr l))
-      (car l)
-      (func (car l) (reduce func (cdr l)))))
 (define nil '())
 
 ; General utils
@@ -74,12 +70,37 @@
       (if (null? (car pairs))
           nil
           (cons (map car pairs) (zip (map cdr pairs))))))
-(define (list-index l index)
+(define (list-index s index)
   ; Gets the element of a list at an index
   ; Returns: (index)th element of l
   (if (= 0 index)
-      (car l)
-      (list-index (cdr l) (- index 1))))
+      (car s)
+      (list-index (cdr s) (- index 1))))
+(define (map procedure s)
+  ; Tail-recursive map, from https://cs61a.org/assets/slides/29-Tail_Calls_full.pdf
+  (define (map-reverse s m)
+    (if (null? s)
+      m
+      (map-reverse
+        (cdr s)
+        (cons (procedure (car s)) m))))
+  (reverse (map-reverse s nil)))
+(define (reverse s)
+  (define (reverse-iter s r)
+    (if (null? s)
+      r
+      (reverse-iter
+        (cdr s)
+        (cons (car s) r))))
+  (reverse-iter s nil))
+(define (reduce func s)
+  ; Tail-recursive reduce
+  (if (null? (cdr s))
+    (car s)
+    (reduce func
+      (cons
+        (func (car s) (car (cdr s)))
+        (cdr (cdr s))))))
 (define (square x) (* x x))
 
 ; Vectors
@@ -213,13 +234,13 @@
            ((null? o2) o1)
            ((> (list-index o1 0) (list-index o2 0)) o2)
            (else o1)))
-     (cons nil (map
+     (map
       (lambda (object)
         (define intersect ((object-intersect object) object ray))
         (if (null? intersect)
             nil
             (list (vec-distsq (ray-orig intersect) (ray-orig ray)) intersect object)))
-      objects))))
+      objects)))
 (define (get-brightness hit)
   ; Gets brightness as a function of hit position, hit normal, light position, and light intensity
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/shading-spherical-light
