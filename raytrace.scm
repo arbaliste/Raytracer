@@ -18,13 +18,13 @@
 (define (exitonclick) (send target save-file "output.png" 'png))
 (send dc set-pen "" 0 'transparent)
 (define (pixel x y color)
-  (send dc set-brush color 'solid)
-  (send dc draw-rectangle x y x y))
+ (send dc set-brush color 'solid)
+ (send dc draw-rectangle x y x y))
 (define (rgb r g b)
-  (make-object color%
-    (exact-round (exact->inexact (* 255 r)))
-    (exact-round (exact->inexact (* 255 g)))
-    (exact-round (exact->inexact (* 255 b)))))
+ (make-object color%
+   (exact-round (exact->inexact (* 255 r)))
+   (exact-round (exact->inexact (* 255 g)))
+   (exact-round (exact->inexact (* 255 b)))))
 (define nil '())
 
 ; General utils
@@ -40,6 +40,7 @@
       a))
 (define (ntake list n)
     ; Takes n elements from a list and returns (first-n . remaining)
+    ; WARNING: Not tail recursive, n shouldn't be large
     (define (iter list n)
       (if (= n 0)
         (cons nil list)
@@ -51,11 +52,16 @@
     (iter list n))
 (define (ngroup list n)
     ; Splits a list into sublists of n elements each
-    (if (null? list)
-      nil
-      (let
-        ((take (ntake list n)))
-        (cons (car take) (ngroup (cdr take) n)))))
+    ; Tail recursive
+    (define (iter-reverse prev list)
+      (if (null? list)
+        prev
+        (let
+          ((take (ntake list n)))
+          (iter-reverse
+            (cons (car take) prev)
+            (cdr take)))))
+    (reverse (iter-reverse nil list)))
 (define (loop-range min-val max-val func)
   ; Basically a for loop
   (func min-val)
@@ -65,6 +71,7 @@
 (define (zip pairs)
   ; Zips multiple lists together
   ; Returns: list of lists
+  ; WARNING: Not fail recursive, lists shouldn't be large
   (if (null? pairs)
       '(() ())
       (if (null? (car pairs))
@@ -86,6 +93,7 @@
         (cons (procedure (car s)) m))))
   (reverse (map-reverse s nil)))
 (define (reverse s)
+  ; Tail-recursive reverse, from https://cs61a.org/assets/slides/29-Tail_Calls_full.pdf
   (define (reverse-iter s r)
     (if (null? s)
       r
@@ -180,7 +188,7 @@
   (object-create triangle-intersect (list p1 p2 p3) color))
 (define (triangle-intersect triangle ray)
   ; TODO
-  #f)
+  nil)
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
@@ -195,7 +203,8 @@
       (reduce max (map vec-x points))
       (reduce max (map vec-y points))
       (reduce max (map vec-z points)))))
-(define (bbox-intersect bbox ray)
+(define (bbox-intersect? bbox ray)
+  ; Checks if a bounding box intersects with a ray, returns a BOOLEAN (NOT standard intersect function)
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
   ; TODO
   #t)
@@ -212,7 +221,7 @@
 (define (mesh-intersect mesh ray)
   ; Checks for intersection with bounding box for optimization
   ; If passed, checks for intersection with any of the triangles
-  (if (not (bbox-intersect (mesh-bbox mesh) ray))
+  (if (not (bbox-intersect? (mesh-bbox mesh) ray))
       nil
       (let
         ((intersect (ray-closest ray (mesh-triangles mesh))))
@@ -259,33 +268,38 @@
   ; Returns: vec3 (color)
   (if (> depth max-depth)
     (sky-color ray)
-    ((lambda ()
-      (define closest (ray-closest ray objects))  
-      (define hit (list-index closest 1))
-      (define phit (ray-orig hit))
-      (define nhit (ray-dir hit))
-      (cond
-        ((null? closest) (sky-color ray))                           ; If no object, use sky color
-        ((> (object-reflection closest) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
-          (vec-mul
-            (ray-trace (+ depth 1) (ray-create (ray-orig closest) (get-reflect (vec-sub hit light-pos) nhit)))
-            (object-reflection closest)))                                               
-        (else ((lambda ()                                                ; If object hit, cast shadow ray and calculate brightness if not in shadow
-          (define shadow-closest
-            (ray-closest (ray-create
-              (ray-orig hit)
-              (vec-sub light-pos hit))))                            ; TODO: Add bias?
-          (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
-                (null? shadow-closest)
-                (> (square (list-index shadow-closest 0)) (vec-distsq (ray-orig hit) light-pos)))
-              (vec-mul (object-color closest) (get-brightness hit))
-              vec-zero)))))))))                                         ; Otherwise, black
+    (let
+      ((closest (ray-closest ray objects)))
+      (if (null? closest)
+        (sky-color ray)
+        (let
+          ((hit (list-index closest 1)))
+          (let
+            ((phit (ray-orig hit))
+            (nhit (ray-dir hit)))
+            (cond
+              ((null? closest) (sky-color ray))                           ; If no object, use sky color
+              ((> (object-reflection closest) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
+                (vec-mul
+                  (ray-trace (+ depth 1) (ray-create (ray-orig closest) (get-reflect (vec-sub hit light-pos) nhit)))
+                  (object-reflection closest)))                                               
+              (else
+                (let                                                ; If object hit, cast shadow ray and calculate brightness if not in shadow
+                  ((shadow-closest
+                    (ray-closest (ray-create
+                      (ray-orig hit)
+                      (vec-sub light-pos hit)))))                           ; TODO: Add bias?
+                  (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
+                        (null? shadow-closest)
+                        (> (square (list-index shadow-closest 0)) (vec-distsq (ray-orig hit) light-pos)))
+                      (vec-mul (object-color closest) (get-brightness hit))
+                      vec-zero))))))))))                                         ; Otherwise, black
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
   (ray-trace 0 (ray-create
    camera-pos
-   (vec-create 0 0 0)))) ; Replace #f with actual ray direction
+   (vec-create 1 0 0)))) ; Replace #f with actual ray direction
 
 ; Setup
 (define pi 3.141592653589793)
@@ -298,7 +312,7 @@
 (define light-intensity 1)
 (define (sky-color ray)
   vec-zero)
-(define encoded-triangles '(; Go bEaRs! 💛🐻💙
+(define meshes '(; Go bEaRs! 💛🐻💙
     ; bear-head.raw
     (-7.898045 -21.120445 27.630659 -6.105236 -17.728930 31.152744 -4.171048 -16.088728 22.005552 -7.046159 -26.464823 29.696983 -7.099590 -21.549801 31.906393 -7.898045 -21.120445 27.630659 2.749910 -29.238297 32.392220 -1.801881 -30.712883 28.994860 2.467273 -29.376026 30.516581 -1.801881 -30.712883 28.994860 -3.198527 -28.617718 32.912144 -7.046159 -26.464823 29.696983 -1.801881 -30.712883 28.994860 -7.046159 -26.464823 29.696983 -4.230879 -28.835491 26.188507 -7.046159 -26.464823 29.696983 -7.898045 -21.120445 27.630659 -6.638173 -23.003172 24.531134 -4.230879 -28.835491 26.188507 -7.046159 -26.464823 29.696983 -3.969551 -24.561682 22.691885 -3.969551 -24.561682 22.691885 -7.046159 -26.464823 29.696983 -6.638173 -23.003172 24.531134 -1.801881 -30.712883 28.994860 -4.230879 -28.835491 26.188507 -1.237524 -34.748291 25.755373 -4.171048 -16.088728 22.005552 1.947252 -24.253481 21.842985 -3.969551 -24.561682 22.691885 -7.898045 -21.120445 27.630659 -4.171048 -16.088728 22.005552 -6.638173 -23.003172 24.531134 -4.171048 -16.088728 22.005552 -3.969551 -24.561682 22.691885 -6.638173 -23.003172 24.531134 -3.969551 -24.561682 22.691885 -1.709026 -33.572163 23.526108 -4.230879 -28.835491 26.188507 7.673471 -21.092440 27.753307 6.618941 -22.322584 32.498806 7.026054 -25.971077 28.496658 7.673471 -21.092440 27.753307 5.470914 -14.837020 23.615858 6.618941 -22.322584 32.498806 6.618941 -22.322584 32.498806 5.470914 -14.837020 23.615858 5.598054 -16.795719 30.787432 5.470914 -14.837020 23.615858 7.673471 -21.092440 27.753307 4.512612 -22.548071 22.498121 2.749910 -29.238297 32.392220 -3.198527 -28.617718 32.912144 -1.801881 -30.712883 28.994860 2.467273 -29.376026 30.516581 7.026054 -25.971077 28.496658 2.749910 -29.238297 32.392220 1.823000 -15.287000 36.009998 3.073612 -19.620508 36.406162 5.799738 -18.587830 33.981400 5.883360 -21.588764 37.617104 7.587817 -21.846151 35.879978 5.799738 -18.587830 33.981400 3.073612 -19.620508 36.406162 5.883360 -21.588764 37.617104 5.799738 -18.587830 33.981400 -1.268000 -15.890000 36.216999 3.073612 -19.620508 36.406162 1.823000 -15.287000 36.009998 5.598054 -16.795719 30.787432 5.799738 -18.587830 33.981400 7.587817 -21.846151 35.879978 3.387874 -23.262854 36.214340 6.618941 -22.322584 32.498806 5.883360 -21.588764 37.617104 5.883360 -21.588764 37.617104 6.618941 -22.322584 32.498806 7.587817 -21.846151 35.879978 2.467273 -29.376026 30.516581 -1.237524 -34.748291 25.755373 1.491632 -33.934464 24.043316 5.598054 -16.795719 30.787432 7.587817 -21.846151 35.879978 6.618941 -22.322584 32.498806 7.026054 -25.971077 28.496658 6.618941 -22.322584 32.498806 3.387874 -23.262854 36.214340 2.467273 -29.376026 30.516581 -1.801881 -30.712883 28.994860 -1.237524 -34.748291 25.755373 3.073612 -19.620508 36.406162 3.387874 -23.262854 36.214340 5.883360 -21.588764 37.617104 7.026054 -25.971077 28.496658 3.387874 -23.262854 36.214340 2.749910 -29.238297 32.392220 3.005798 -16.558197 22.244383 1.947252 -24.253481 21.842985 -4.171048 -16.088728 22.005552 -3.986343 -18.089178 35.489517 -7.781418 -20.813440 34.652275 -5.717453 -21.281263 37.446404 1.947252 -24.253481 21.842985 4.512612 -22.548071 22.498121 7.026054 -25.971077 28.496658 4.512612 -22.548071 22.498121 7.673471 -21.092440 27.753307 7.026054 -25.971077 28.496658 1.947252 -24.253481 21.842985 3.005798 -16.558197 22.244383 4.512612 -22.548071 22.498121 4.512612 -22.548071 22.498121 3.005798 -16.558197 22.244383 5.470914 -14.837020 23.615858 -3.769217 -23.078768 36.195969 -1.268000 -15.890000 36.216999 -3.986343 -18.089178 35.489517 3.387874 -23.262854 36.214340 3.073612 -19.620508 36.406162 -1.268000 -15.890000 36.216999 -3.769217 -23.078768 36.195969 3.387874 -23.262854 36.214340 -1.268000 -15.890000 36.216999 -6.680016 -22.311075 36.510719 -3.769217 -23.078768 36.195969 -5.717453 -21.281263 37.446404 -5.717453 -21.281263 37.446404 -3.769217 -23.078768 36.195969 -3.986343 -18.089178 35.489517 -7.781418 -20.813440 34.652275 -6.680016 -22.311075 36.510719 -5.717453 -21.281263 37.446404 3.461000 -28.247000 24.302000 2.467273 -29.376026 30.516581 1.491632 -33.934464 24.043316 7.026054 -25.971077 28.496658 2.467273 -29.376026 30.516581 3.461000 -28.247000 24.302000 7.026054 -25.971077 28.496658 3.461000 -28.247000 24.302000 1.947252 -24.253481 21.842985 1.947252 -24.253481 21.842985 -1.709026 -33.572163 23.526108 -3.969551 -24.561682 22.691885 3.461000 -28.247000 24.302000 1.491632 -33.934464 24.043316 1.947252 -24.253481 21.842985 1.491632 -33.934464 24.043316 -1.709026 -33.572163 23.526108 1.947252 -24.253481 21.842985 -7.046159 -26.464823 29.696983 -3.769217 -23.078768 36.195969 -7.099590 -21.549801 31.906393 -7.099590 -21.549801 31.906393 -3.769217 -23.078768 36.195969 -6.680016 -22.311075 36.510719 -3.986343 -18.089178 35.489517 -6.105236 -17.728930 31.152744 -7.781418 -20.813440 34.652275 -7.099590 -21.549801 31.906393 -6.680016 -22.311075 36.510719 -7.781418 -20.813440 34.652275 -6.105236 -17.728930 31.152744 -7.099590 -21.549801 31.906393 -7.781418 -20.813440 34.652275 -7.099590 -21.549801 31.906393 -6.105236 -17.728930 31.152744 -7.898045 -21.120445 27.630659 3.387874 -23.262854 36.214340 -3.198527 -28.617718 32.912144 2.749910 -29.238297 32.392220 3.387874 -23.262854 36.214340 -3.769217 -23.078768 36.195969 -3.198527 -28.617718 32.912144 -3.769217 -23.078768 36.195969 -7.046159 -26.464823 29.696983 -3.198527 -28.617718 32.912144 1.823000 -15.287000 36.009998 5.799738 -18.587830 33.981400 5.598054 -16.795719 30.787432 -4.230879 -28.835491 26.188507 -1.709026 -33.572163 23.526108 -1.237524 -34.748291 25.755373 -1.709026 -33.572163 23.526108 1.491632 -33.934464 24.043316 -1.237524 -34.748291 25.755373 )
     ; bear-leg1.raw
@@ -315,12 +329,10 @@
   (append
     (list ; Normal objects
       (sphere-create 1 (vec-create 0 0 0) (vec-create 1 0 0) 0))
-    (reduce ; Bear objects
-      append
-      (map
-        (lambda (part)
-          (mesh-create part (vec-create 0 0 1)))
-        encoded-triangles))))
+    (map ; Mesh objects
+      (lambda (mesh)
+        (mesh-create mesh (vec-create 0 0 1)))
+      meshes)))
 
 ; Main draw function
 (define (draw)
