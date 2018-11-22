@@ -231,6 +231,16 @@
 (define (mesh-triangles mesh) (list-index (object-properties mesh) 0))
 (define (mesh-bbox mesh) (list-index (object-properties mesh) 1))
 
+; o_0
+(define (num-to-list num pow)
+  ; Converts num to a list of its segments of 10**pow
+  (define pow10 (expt 10 pow))
+  (define (iter-reverse prevpow prev) ; Can't repeatedly divide because the scheme interpreter uses / for division, and ints are too large
+    (if (= num 0)
+      prev
+      (iter-reverse (quotient num pow10) (cons (modulo num pow10) prev))))
+  (iter-reverse num nil))
+
 ; Raytracing
 (define (ray-closest ray objects)
   ; Find closest object intersecting with a ray

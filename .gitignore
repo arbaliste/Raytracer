@@ -1,3 +1,5 @@
+interpreter/
+
 *.ss~
 *.ss#*
 .#*.ss
