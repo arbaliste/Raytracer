@@ -42,6 +42,24 @@
   (if (< a b)
       b
       a))
+(define (ntake list n)
+    ; Takes n elements from a list and returns (first-n . remaining)
+    (define (iter list n)
+      (if (= n 0)
+        (cons nil list)
+        (let
+          ((next (iter (cdr list) (- n 1))))
+          (cons
+            (cons (car list) (car next))
+            (cdr next)))))
+    (iter list n))
+(define (ngroup list n)
+    ; Splits a list into sublists of n elements each
+    (if (null? list)
+      nil
+      (let
+        ((take (ntake list n)))
+        (cons (car take) (ngroup (cdr take) n)))))
 (define (loop-range min-val max-val func)
   ; Basically a for loop
   (func min-val)
@@ -71,15 +89,15 @@
 (define (vec-y vec) (list-index vec 1))
 (define (vec-z vec) (list-index vec 2))
 (define (vec-mul v1 scalar) (map (lambda (x) (* x scalar)) v1))
-(define (vec-add v1 v2) (map (lambda (x) (reduce + x)) (zip v1 v2)))
+(define (vec-add v1 v2) (map (lambda (x) (reduce + x)) (zip (list v1 v2))))
 (define (vec-sub v1 v2) (vec-add v1 (vec-mul v2 -1)))
-(define (vec-dot v1 v2) (reduce + (map (lambda (x) (reduce * x)) (zip v1 v2))))
+(define (vec-dot v1 v2) (reduce + (map (lambda (x) (reduce * x)) (zip (list v1 v2)))))
 (define (vec-cross v1 v2) ; Only 3d
   (vec-create
    (- (* (vec-y v1) (vec-z v2)) (* (vec-z v1) (vec-y v2)))
    (- (* (vec-z v1) (vec-x v2)) (* (vec-x v1) (vec-z v2)))
    (- (* (vec-x v1) (vec-y v2)) (* (vec-y v1) (vec-x v2)))))
-(define (vec-distsq v1 v2) (reduce + (map (lambda (x) (square (reduce - x))) (zip v1 v2))))
+(define (vec-distsq v1 v2) (reduce + (map (lambda (x) (square (reduce - x))) (zip (list v1 v2)))))
 (define (vec-dist v1 v2) (sqrt (vec-distsq v1 v2)))
 (define vec-zero (vec-create 0 0 0))
 (define (vec-magnitude v1) (vec-dist v1 vec-zero))
@@ -137,22 +155,54 @@
 (define (sphere-position sphere) (list-index (object-properties sphere) 1))
 ; Triangles
 ; Triangle properties: (p1 p2 p3)
-; TODO
 (define (triangle-create p1 p2 p3 color)
   (object-create triangle-intersect (list p1 p2 p3) color))
 (define (triangle-intersect triangle ray)
+  ; TODO
   #f)
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
-(define (mesh-create encoded color)
-  ; Creates a mesh from an encoded list of triplets of vecs
-  ; Returns: list of triangles
-  ; TODO: Make mesh a full object, with bounding boxes/spheres for optimization?
-  #f)
+(define (calculate-bbox points)
+  ; Finds the smallest bounding box around a set of points, represented as (min max)
+  (list
+    (vec-create
+      (reduce min (map vec-x points))
+      (reduce min (map vec-y points))
+      (reduce min (map vec-z points)))
+    (vec-create
+      (reduce max (map vec-x points))
+      (reduce max (map vec-y points))
+      (reduce max (map vec-z points)))))
+(define (bbox-intersect bbox ray)
+  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
+  ; TODO
+  #t)
+(define (mesh-create nums color)
+  ; Creates a mesh from a list of triangle vertex positions (each triplet is a vec)
+  (define points (ntake nums 3))
+  (define triangles
+    (map
+      (lambda (vertices)
+        (triangle-create (list-index vertices 0) (list-index vertices 1) (list-index vertices 2) color))
+      (ntake points 3)))
+  (define bbox (calculate-bbox points))
+  (object-create mesh-intersect (list triangles bbox) color))
+(define (mesh-intersect mesh ray)
+  ; Checks for intersection with bounding box for optimization
+  ; If passed, checks for intersection with any of the triangles
+  (if (not (bbox-intersect (mesh-bbox mesh) ray))
+      nil
+      (let
+        ((intersect (ray-closest ray (mesh-triangles mesh))))
+        (if (null? intersect)
+          nil
+          (list-index intersect 1)))))
+(define (mesh-triangles mesh) (list-index (object-properties mesh) 0))
+(define (mesh-bbox mesh) (list-index (object-properties mesh) 1))
 
 ; Raytracing
-(define (ray-closest ray)
+(define (ray-closest ray objects)
   ; Find closest object intersecting with a ray
   ; Returns: (distance^2: number, hit: ray, object: object)
   ; Returns nil if nothing hit
@@ -189,7 +239,7 @@
   (if (> depth max-depth)
     (sky-color ray)
     ((lambda ()
-      (define closest (ray-closest ray))  
+      (define closest (ray-closest ray objects))  
       (define hit (list-index closest 1))
       (define phit (ray-orig hit))
       (define nhit (ray-dir hit))
@@ -214,7 +264,7 @@
   ; Returns: vec3 (color)
   (ray-trace 0 (ray-create
    camera-pos
-   #f))) ; Replace #f with actual ray direction
+   (vec-create 0 0 0)))) ; Replace #f with actual ray direction
 
 ; Setup
 (define pi 3.141592653589793)
