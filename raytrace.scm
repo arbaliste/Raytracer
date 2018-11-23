@@ -12,8 +12,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 500)
-(define (screen_height) 500)
+(define (screen_width) 250)
+(define (screen_height) 250)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -130,7 +130,8 @@
 (define (vec-distsq v1 v2) (reduce + (map (lambda (x) (square (reduce - x))) (zip (list v1 v2)))))
 (define (vec-dist v1 v2) (sqrt (vec-distsq v1 v2)))
 (define vec-zero (vec-create 0 0 0))
-(define (vec-magnitude v1) (vec-dist v1 vec-zero))
+(define (vec-magnitudesq v1) (vec-dot v1 v1))
+(define (vec-magnitude v1) (sqrt (vec-magnitudesq v1)))
 (define (vec-normalize v1) (vec-mul v1 (/ 1 (vec-magnitude v1))))
 (define (vec-rgb vec) (apply rgb vec))
 
@@ -157,14 +158,15 @@
 (define (sphere-create radius vec color reflection)
   (object-create sphere-intersect (list radius vec) color reflection))
 (define (sphere-intersect sphere ray)
+  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection
   (define radius (sphere-radius sphere))
   (define position (sphere-position sphere))
   (define origin (ray-orig ray))
   (define direction (ray-dir ray))
   (define l (vec-sub position origin))
   (define tca (vec-dot l direction))
-  (define d2 (- (vec-dot l l) (square tca)))
-  (if (> d2 radius)
+  (define d2 (- (vec-magnitudesq l) (square tca)))
+  (if (or (< tca 0) (> d2 (square radius)))
       nil
       ((lambda () ; Uses lambda because begin in an expression doesn't allow defines in racket
          (define thc (sqrt (- (square radius) d2)))
@@ -289,7 +291,7 @@
     light-intensity
     ;(/ (* 4 pi)                                                                      
     ;(/ (vec-distsq (ray-orig hit) list-pos))                                         ; Inverse square
-    (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit))))))      ; Angle between nhit and -lightdir
+    (max 0 (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit)))))))      ; Angle between nhit and -lightdir
 (define (get-reflect lightdir nhit)
   ; Get a reflection direction from a light direction and normal
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
@@ -332,16 +334,14 @@
     (* 2
      (vec-dist camera-pos camera-lookat)
      (tan (* camera-fov pi (/ 360)))))
-  (define aspect (/ (screen_width) (screen_height)))
-  (define yscale (/ screen-height (screen_height))) ; Units per pixel
-  (define xscale (* yscale aspect))
-  (define yoffset (- y (/ (screen_height) 2) -0.5)) ; Offset in pixels from camera lookat
+  (define scale (/ screen-height (screen_height))) ; Units per pixel
+  (define yoffset (- (- y (/ (screen_height) 2) -0.5))) ; Offset in pixels from camera lookat. Y is flipped because the top left of the screen is 0,0
   (define xoffset (- x (/ (screen_width) 2) -0.5))
   (define screen-pos
     (vec-add
       (vec-add
-       (vec-mul upvec (* yscale yoffset))
-       (vec-mul rightvec (* xscale xoffset)))
+       (vec-mul upvec (* scale yoffset))
+       (vec-mul rightvec (* scale xoffset)))
       camera-lookat))
   (ray-trace 0 (ray-create
     camera-pos
@@ -354,11 +354,11 @@
 (define camera-lookat (vec-create 0 0 0))
 (define camera-up (vec-create 0 1 0))
 (define camera-fov 90)
-(define light-pos (vec-create 0 30 0))
+(define light-pos (vec-create 0 30 30))
 (define light-intensity 1)
 (define (sky-color ray)
-  vec-zero)
-(define meshes '(; Go bEaRs! 💛🐻💙
+  (vec-create 1 1 1))
+(define meshes '( ; Go bEaRs! 💛🐻💙
   ; bear-leg4
   067274712033096242134982511074614772014195442039374801041973142005567432042312051074614772014195442039374801093570182045818382018218851041973142005567432042312051093570182045818382018218851033940112047072542005804711041973142005567432042312051033214752053919141130980111029598152007526762136541121041973142005567432042312051067274712033096242134982511041973142005567432042312051029598152007526762136541121099733102028516901003176731062513452067899301144874381057669132052531351003080081028166372023144411000979081057669132052531351003080081062513452067899301144874381028166372023144411000979081062513452067899301144874381033214752053919141130980111033214752053919141130980111041973142005567432042312051028166372023144411000979081099733102028516901003176731033940112047072542005804711073374882055178962005808861033940112047072542005804711028166372023144411000979081041973142005567432042312051099733102028516901003176731057669132052531351003080081028166372023144411000979081099733102028516901003176731028166372023144411000979081033940112047072542005804711099733102028516901003176731094972462062129391182143671062513452067899301144874381122012502032769552251768741099733102028516901003176731067274712033096242134982511074614772014195442039374801067274712033096242134982511099733102028516901003176731099733102028516901003176731073374882055178962005808861093570182045818382018218851099733102028516901003176731093570182045818382018218851074614772014195442039374801093570182045818382018218851073374882055178962005808861033940112047072542005804711099733102028516901003176731122012502032769552251768741094972462062129391182143671
   ; bear-head
@@ -375,7 +375,9 @@
 (define objects
   (append
     (list ; Normal objects
-      (sphere-create 15 (vec-create 0 0 0) (vec-create 1 0 0) 0))
+      (sphere-create 5 (vec-create 0 0 0) (vec-create 1 0 0) 0)
+      (sphere-create 5 (vec-create 5 15 0) (vec-create 0 1 0) 0.8)
+      (sphere-create 10 (vec-create 0 -15 0) (vec-create 0 0 1) 0))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
