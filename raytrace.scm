@@ -394,23 +394,32 @@
           (define object (list-index closest 2))
           (define phit (ray-orig hit))
           (define nhit (ray-dir hit))
-          (define reflect-component
-               (if (> (vec-magnitudesq (material-reflection (object-material object))) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
-                 (vec-mulvec
-                   (ray-trace (+ depth 1) (ray-create phit (get-reflect (ray-dir ray) nhit)))
-                   (material-reflection (object-material object)))
-                 vec-zero))
-          (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
-                    (ray-closest (ray-create
-                                  phit
-                                  (vec-sub light-pos phit)) objects))                           ; TODO: Add bias?
-          (define diffuse-component
-            (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
-                 (null? shadow-closest)
-                 (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
-               (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
-               vec-zero)) ; Otherwise, black
-          (vec-colormap (vec-add reflect-component diffuse-component))))))                                       
+          (if (or ; REFLECT / REFRACT
+                (> (vec-magnitudesq (material-reflection (object-material object))) 0)
+                (> (vec-magnitudesq (material-refraction (object-material object))) 0))
+              ((lambda ()
+                (define reflect-component ; Calculate reflection by tracing a ray
+                  (if (> (vec-magnitudesq (material-reflection (object-material object))) 0)
+                    (vec-mulvec
+                      (ray-trace (+ depth 1) (ray-create phit (get-reflect (ray-dir ray) nhit)))
+                      (material-reflection (object-material object)))
+                    vec-zero))
+                (define refract-component ; Calculate refraction by tracing a ray
+                  (if (> (vec-magnitudesq (material-refraction (object-material object))) 0)
+                    vec-zero ; TODO - Ray
+                    vec-zero))
+                (vec-colormap vec-zero))) ; TODO - Fresnel
+              ((lambda () ; DIFFUSE
+                (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
+                  (ray-closest
+                    (ray-create
+                      phit
+                      (vec-sub light-pos phit)) objects)) ; TODO: Add bias?
+                (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
+                     (null? shadow-closest)
+                     (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
+                   (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
+                   vec-zero)))))))) ; Otherwise, black
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
