@@ -151,18 +151,27 @@
 (define (ray-dir ray) (list-index ray 1))
 
 ; Objects
-; Object structure: (intersect-function properties color reflection)
 ; Intersect function: determines whether an object intersects with a ray
 ;   Returns: ray of phit and nhit
 ;            nil if no intersection
 ; Properties: list of object type specific attributes
-; Color: vec3 (color)
-; Reflection: from 0 to 1, amount reflected
-(define object-create list)
+; Material: material list (below)
+(define (object-create intersect properties material)
+  (list intersect properties material))
 (define (object-intersect obj) (list-index obj 0))
 (define (object-properties obj) (list-index obj 1))
-(define (object-color obj) (list-index obj 2))
-(define (object-reflection obj) (list-index obj 3))
+(define (object-material obj) (list-index obj 2))
+; Materials
+; Color: vec3 (color)
+; Reflection: vec3 (color), amount reflected
+; Transparency: vec3 (color), amount refracted
+; Index of refraction: amount to bend light
+(define (material-create color-func reflection transparency ior)
+  (list color-func reflection transparency ior))
+(define (material-color material) (list-index material 0))
+(define (material-reflection material) (list-index material 1))
+(define (material-refraction material) (list-index material 2))
+(define (material-ior material) (list-index material 3))
 (define (make-constant-color color)
   (lambda (object point)
     color))
@@ -179,8 +188,8 @@
         color2)))
 ; Planes
 ; Plane properties: (p normal)
-(define (plane-create p normal color reflection)
-  (object-create plane-intersect (list p normal) color reflection))
+(define (plane-create p normal material)
+  (object-create plane-intersect (list p normal) material))
 (define (plane-intersect plane ray)
   (define invnorm (vec-mul (vec-normalize (plane-normal plane)) -1))
   (define point (plane-point plane))
@@ -200,8 +209,8 @@
   (list-index (object-properties plane) 1))
 ; Spheres
 ; Sphere properties: (radius position)
-(define (sphere-create radius vec color reflection)
-  (object-create sphere-intersect (list radius vec) color reflection))
+(define (sphere-create radius vec material)
+  (object-create sphere-intersect (list radius vec) material))
 (define (sphere-intersect sphere ray)
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection
   (define radius (sphere-radius sphere))
@@ -232,8 +241,8 @@
 (define (sphere-position sphere) (list-index (object-properties sphere) 1))
 ; Triangles
 ; Triangle properties: (p1 p2 p3)
-(define (triangle-create p1 p2 p3 color reflection)
-  (object-create triangle-intersect (list p1 p2 p3) color reflection))
+(define (triangle-create p1 p2 p3 material)
+  (object-create triangle-intersect (list p1 p2 p3) material))
 (define (triangle-intersect triangle ray)
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/geometry-of-a-triangle
   ;
@@ -291,15 +300,15 @@
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
   ; TODO
   #t)
-(define (mesh-create points color reflection)
+(define (mesh-create points material)
   ; Creates a mesh from a list of triangle vertex positions
   (define triangles
     (map
       (lambda (vertices)
-        (triangle-create (list-index vertices 0) (list-index vertices 1) (list-index vertices 2) color reflection))
+        (triangle-create (list-index vertices 0) (list-index vertices 1) (list-index vertices 2) material))
       (ngroup points 3)))
   (define bbox (calculate-bbox points))
-  (object-create mesh-intersect (list triangles bbox) color reflection))
+  (object-create mesh-intersect (list triangles bbox) material))
 (define (mesh-intersect mesh ray)
   ; Checks for intersection with bounding box for optimization
   ; If passed, checks for intersection with any of the triangles
@@ -367,8 +376,8 @@
   ; Gets brightness as a function of hit position, hit normal, light position, and light intensity
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/shading-spherical-light
   ; Returns: number from 0 to 1
-  (*
-    light-intensity
+  (vec-mul
+    light-color
     (max 0 (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit)))))))      ; Angle between nhit and -lightdir
 (define (get-reflect dir nhit)
   ; Get a reflection direction from a direction and normal
@@ -386,10 +395,10 @@
           (define phit (ray-orig hit))
           (define nhit (ray-dir hit))
           (define reflect-component
-               (if (> (vec-magnitudesq (object-reflection object)) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
+               (if (> (vec-magnitudesq (material-reflection (object-material object))) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
                  (vec-mulvec
                    (ray-trace (+ depth 1) (ray-create phit (get-reflect (ray-dir ray) nhit)))
-                   (object-reflection object))
+                   (material-reflection (object-material object)))
                  vec-zero))
           (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
                     (ray-closest (ray-create
@@ -399,7 +408,7 @@
             (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
                  (null? shadow-closest)
                  (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
-               (vec-mul ((object-color object) object phit) (get-brightness hit))
+               (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
                vec-zero)) ; Otherwise, black
           (vec-colormap (vec-add reflect-component diffuse-component))))))                                       
 (define (pixel-trace x y)
@@ -436,7 +445,7 @@
 (define camera-up (vec-cross (vec-sub camera-lookat camera-pos) (vec-create -1 0 0)))
 (define camera-fov 90)
 (define light-pos (vec-create 0 30 30))
-(define light-intensity 1)
+(define light-color (vec-create 1 1 1))
 (define (sky-color ray)
   (vec-create 0 0 0))
 (define meshes '( ; Go bEaRs! 💛🐻💙
@@ -456,18 +465,23 @@
 (define objects
   (append
     (list ; Normal objects
-      (plane-create (vec-create 0 0 0) (vec-create 0 1 0) (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0.7 0.7 0.7))
-      (sphere-create 5 (vec-create -10 5 20) (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero)
-      (sphere-create 5 (vec-create 5 5 15) (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8))
-      (sphere-create 10 (vec-create 15 10 0) (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero)
-      (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15) (make-constant-color (vec-create 1 0 0)) vec-zero))
+      (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
+        (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0.7 0.7 0.7) vec-zero 0))
+      (sphere-create 5 (vec-create -10 5 20)
+        (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 0))
+      (sphere-create 5 (vec-create 5 5 15)
+        (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8) vec-zero 0))
+      (sphere-create 10 (vec-create 15 10 0)
+        (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 0))
+      (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15)
+        (material-create (make-constant-color (vec-create 1 0 0)) vec-zero vec-zero 0)))
     nil));(map ; Mesh objects
     ;  (lambda (num)
     ;    (define coords (num-to-coords num))
     ;    (display "Found ")
     ;    (display (/ (length coords) 3))
     ;    (display " faces\n")
-    ;    mesh-create coords (make-constant-color (vec-create 1 0 0)) 0))
+    ;    mesh-create coords (material-create (make-constant-color (vec-create 1 0 0)) ver-zero ver-zero 0))
     ;  meshes)))
 
 ; Main draw function
