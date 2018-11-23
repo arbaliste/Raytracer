@@ -12,8 +12,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 250)
-(define (screen_height) 250)
+(define (screen_width) 150)
+(define (screen_height) 150)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -29,6 +29,11 @@
 (define nil '())
 
 ; General utils
+(define (all l)
+  (cond
+    ((null? l) #t)
+    ((not (car l)) #f)
+    (all (cdr l))))
 (define (clamp oldmin oldmax newmin newmax val)
   (+ (* (/ (- val oldmin) (- oldmax oldmin)) (- newmax newmin)) newmin))
 (define (min a b)
@@ -119,6 +124,7 @@
 (define (vec-y vec) (list-index vec 1))
 (define (vec-z vec) (list-index vec 2))
 (define (vec-mul v1 scalar) (map (lambda (x) (* x scalar)) v1))
+(define (vec-mulvec v1 v2) (map (lambda (x) (reduce * x)) (zip (list v1 v2))))
 (define (vec-add v1 v2) (map (lambda (x) (reduce + x)) (zip (list v1 v2))))
 (define (vec-sub v1 v2) (vec-add v1 (vec-mul v2 -1)))
 (define (vec-dot v1 v2) (reduce + (map (lambda (x) (reduce * x)) (zip (list v1 v2)))))
@@ -133,6 +139,7 @@
 (define (vec-magnitudesq v1) (vec-dot v1 v1))
 (define (vec-magnitude v1) (sqrt (vec-magnitudesq v1)))
 (define (vec-normalize v1) (vec-mul v1 (/ 1 (vec-magnitude v1))))
+(define (vec-colormap vec) (map (lambda (x) (min x 1)) vec))  
 (define (vec-rgb vec) (apply rgb vec))
 
 ; Rays
@@ -153,6 +160,39 @@
 (define (object-properties obj) (list-index obj 1))
 (define (object-color obj) (list-index obj 2))
 (define (object-reflection obj) (list-index obj 3))
+(define (make-constant-color color)
+  (lambda (object point)
+    color))
+(define (make-checkerboard-color color1 color2 gridsize)
+  (lambda (object point)
+    (define modvec (map (lambda (p) (modulo (floor (/ p gridsize)) 2)) point))
+    (define xmod (vec-x modvec))
+    (define ymod (vec-y modvec))
+    (define zmod (vec-z modvec))
+    (if (= xmod zmod)
+        color1
+        color2)))
+; Planes
+; Plane properties: (p normal)
+(define (plane-create p normal color reflection)
+  (object-create plane-intersect (list p normal) color reflection))
+(define (plane-intersect plane ray)
+  (define invnorm (vec-mul (vec-normalize (plane-normal plane)) -1))
+  (define point (plane-point plane))
+  (define direction (ray-dir ray))
+  (define origin (ray-orig ray))
+  (define denom (vec-dot invnorm direction))
+  (if (<= denom bias)
+      nil
+      (let
+          ((t (/ (vec-dot (vec-sub point origin) invnorm) denom)))
+          (if (< t 0)
+              nil
+              (ray-create (vec-add origin (vec-mul direction t)) (plane-normal plane))))))
+(define (plane-point plane)
+  (list-index (object-properties plane) 0))
+(define (plane-normal plane)
+  (list-index (object-properties plane) 1))
 ; Spheres
 ; Sphere properties: (radius position)
 (define (sphere-create radius vec color reflection)
@@ -203,23 +243,30 @@
   (define c (triangle-p3 triangle))
   (define AB (vec-sub b a))
   (define AC (vec-sub c a))
-  (define p (vec-cross direction AC))
-  (define det (vec-dot AB p))
-  (if (< (abs det) bias) ; Remove abs for back culling
+  (define normal (vec-cross AB AC))
+  (define areasq (vec-magnitudesq normal))
+  (define normdotray (vec-dot normal direction))
+  (if (< (abs normdotray) bias) ; Remove abs for back culling
       nil
-      ((lambda ()
-        (define t (vec-sub origin a))
-        (define q (vec-cross t AB))
-        (define u (/ (vec-dot t p) det))
-        (define v (/ (vec-dot direction q) det))
-        (if (or (< v 0) (> v 1) (< u 0) (> u 1))
+      (let
+        ((t (/ (+ (vec-dot normal origin) (vec-dot normal a)) normdotray)))
+        (if (< t 0)
             nil
-            ((lambda ()
-              (define tparam (/ (vec-dot AC q) det))
-              (define normal (vec-normalize (vec-cross AB AC)))
-              (ray-create
-               (vec-add origin (vec-mul direction tparam))
-               normal))))))))
+            (let
+              ((phit (vec-add origin (vec-mul direction t))))
+              (if
+               (all
+                (map
+                 (lambda (p)
+                   (define point (car p))
+                   (define edge (cdr p))
+                   (>= (vec-dot normal (vec-cross edge (vec-sub phit point))) 0))
+                 (list
+                  (cons a (vec-sub b a))
+                  (cons b (vec-sub c b))
+                  (cons c (vec-sub a c)))))
+              (ray-create phit (vec-normalize normal))
+              nil))))))
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
@@ -317,39 +364,39 @@
   ; Returns: number from 0 to 1
   (*
     light-intensity
-    ;(/ (* 4 pi)                                                                      
-    ;(/ (vec-distsq (ray-orig hit) list-pos))                                         ; Inverse square
     (max 0 (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit)))))))      ; Angle between nhit and -lightdir
-(define (get-reflect lightdir nhit)
-  ; Get a reflection direction from a light direction and normal
+(define (get-reflect dir nhit)
+  ; Get a reflection direction from a direction and normal
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
-  (vec-sub lightdir (vec-mul nhit (* 2 (vec-dot lightdir nhit)))))
+  (vec-sub dir (vec-mul nhit (* 2 (vec-dot dir nhit)))))
 (define (ray-trace depth ray)
   ; Traces a ray into the scene
   ; Returns: vec3 (color)
   (define closest (ray-closest ray objects))
   (if (or (null? closest) (> depth max-depth))                           ; If no object, use sky color
       (sky-color ray)
-      (let
-          ((hit (list-index closest 1))
-           (object (list-index closest 2)))
-        (let
-            ((phit (ray-orig hit))
-             (nhit (ray-dir hit)))
-          (if (> (object-reflection object) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
-              (vec-mul
-               (ray-trace (+ depth 1) (ray-create phit (get-reflect (vec-sub phit light-pos) nhit)))
-               (object-reflection object))                                               
-              (let                                                ; If object hit, cast shadow ray and calculate brightness if not in shadow
-                  ((shadow-closest
+      ((lambda ()
+          (define hit (list-index closest 1))
+          (define object (list-index closest 2))
+          (define phit (ray-orig hit))
+          (define nhit (ray-dir hit))
+          (define reflect-component
+               (if (> (vec-magnitudesq (object-reflection object)) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
+                 (vec-mulvec
+                   (ray-trace (+ depth 1) (ray-create phit (get-reflect (ray-dir ray) nhit)))
+                   (object-reflection object))
+                 vec-zero))
+          (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
                     (ray-closest (ray-create
                                   phit
-                                  (vec-sub light-pos phit)) objects)))                           ; TODO: Add bias?
-                (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
-                     (null? shadow-closest)
-                     (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
-                    (vec-mul (object-color object) (get-brightness hit))
-                    vec-zero)))))))                                         ; Otherwise, black
+                                  (vec-sub light-pos phit)) objects))                           ; TODO: Add bias?
+          (define diffuse-component
+            (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
+                 (null? shadow-closest)
+                 (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
+               (vec-mul ((object-color object) object phit) (get-brightness hit))
+               vec-zero)) ; Otherwise, black
+          (vec-colormap (vec-add reflect-component diffuse-component))))))                                       
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
@@ -379,14 +426,14 @@
 (define pi 3.141592653589793)
 (define bias 0.0001)
 (define max-depth 5)
-(define camera-pos (vec-create 0 0 60))
+(define camera-pos (vec-create 0 20 50))
 (define camera-lookat (vec-create 0 0 0))
-(define camera-up (vec-create 0 1 0))
+(define camera-up (vec-cross (vec-sub camera-lookat camera-pos) (vec-create -1 0 0)))
 (define camera-fov 90)
 (define light-pos (vec-create 0 30 30))
 (define light-intensity 1)
 (define (sky-color ray)
-  (vec-create 1 1 1))
+  (vec-create 0 0 0))
 (define meshes '( ; Go bEaRs! 💛🐻💙
   ; bear-leg4
   067274712033096242134982511074614772014195442039374801041973142005567432042312051074614772014195442039374801093570182045818382018218851041973142005567432042312051093570182045818382018218851033940112047072542005804711041973142005567432042312051033214752053919141130980111029598152007526762136541121041973142005567432042312051067274712033096242134982511041973142005567432042312051029598152007526762136541121099733102028516901003176731062513452067899301144874381057669132052531351003080081028166372023144411000979081057669132052531351003080081062513452067899301144874381028166372023144411000979081062513452067899301144874381033214752053919141130980111033214752053919141130980111041973142005567432042312051028166372023144411000979081099733102028516901003176731033940112047072542005804711073374882055178962005808861033940112047072542005804711028166372023144411000979081041973142005567432042312051099733102028516901003176731057669132052531351003080081028166372023144411000979081099733102028516901003176731028166372023144411000979081033940112047072542005804711099733102028516901003176731094972462062129391182143671062513452067899301144874381122012502032769552251768741099733102028516901003176731067274712033096242134982511074614772014195442039374801067274712033096242134982511099733102028516901003176731099733102028516901003176731073374882055178962005808861093570182045818382018218851099733102028516901003176731093570182045818382018218851074614772014195442039374801093570182045818382018218851073374882055178962005808861033940112047072542005804711099733102028516901003176731122012502032769552251768741094972462062129391182143671
@@ -404,17 +451,18 @@
 (define objects
   (append
     (list ; Normal objects
-      (sphere-create 5 (vec-create 0 0 0) (vec-create 1 0 0) 0)
-      (sphere-create 5 (vec-create 5 15 0) (vec-create 0 1 0) 0.8)
-      (sphere-create 10 (vec-create 0 -15 0) (vec-create 0 0 1) 0)
-      (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15) (vec-create 1 0 0) 0))
+      (plane-create (vec-create 0 0 0) (vec-create 0 1 0) (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0.7 0.7 0.7))
+      (sphere-create 5 (vec-create -10 5 20) (make-constant-color (vec-create 1 0 0)) vec-zero)
+      (sphere-create 5 (vec-create 5 5 15) (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8))
+      (sphere-create 10 (vec-create 15 10 0) (make-constant-color (vec-create 0 0 1)) vec-zero)
+      (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15) (make-constant-color (vec-create 1 0 0)) vec-zero))
     nil));(map ; Mesh objects
     ;  (lambda (num)
     ;    (define coords (num-to-coords num))
     ;    (display "Found ")
     ;    (display (/ (length coords) 3))
     ;    (display " faces\n")
-    ;    mesh-create coords (vec-create 1 0 0) 0))
+    ;    mesh-create coords (make-constant-color (vec-create 1 0 0)) 0))
     ;  meshes)))
 
 ; Main draw function
