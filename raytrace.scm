@@ -187,11 +187,39 @@
 (define (sphere-position sphere) (list-index (object-properties sphere) 1))
 ; Triangles
 ; Triangle properties: (p1 p2 p3)
-(define (triangle-create p1 p2 p3 color)
-  (object-create triangle-intersect (list p1 p2 p3) color))
+(define (triangle-create p1 p2 p3 color reflection)
+  (object-create triangle-intersect (list p1 p2 p3) color reflection))
 (define (triangle-intersect triangle ray)
-  ; TODO
-  nil)
+  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/geometry-of-a-triangle
+  ;
+  ;    C
+  ;   ^  
+  ;  /    
+  ; A ---> B
+  (define origin (ray-orig ray))
+  (define direction (ray-dir ray))
+  (define a (triangle-p1 triangle))
+  (define b (triangle-p2 triangle))
+  (define c (triangle-p3 triangle))
+  (define AB (vec-sub b a))
+  (define AC (vec-sub c a))
+  (define p (vec-cross direction AC))
+  (define det (vec-dot AB p))
+  (if (< (abs det) bias) ; Remove abs for back culling
+      nil
+      ((lambda ()
+        (define t (vec-sub origin a))
+        (define q (vec-cross t AB))
+        (define u (/ (vec-dot t p) det))
+        (define v (/ (vec-dot direction q) det))
+        (if (or (< v 0) (> v 1) (< u 0) (> u 1))
+            nil
+            ((lambda ()
+              (define tparam (/ (vec-dot AC q) det))
+              (define normal (vec-normalize (vec-cross AB AC)))
+              (ray-create
+               (vec-add origin (vec-mul direction tparam))
+               normal))))))))
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
@@ -211,15 +239,15 @@
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
   ; TODO
   #t)
-(define (mesh-create points color)
+(define (mesh-create points color reflection)
   ; Creates a mesh from a list of triangle vertex positions
   (define triangles
     (map
       (lambda (vertices)
-        (triangle-create (list-index vertices 0) (list-index vertices 1) (list-index vertices 2) color))
+        (triangle-create (list-index vertices 0) (list-index vertices 1) (list-index vertices 2) color reflection))
       (ngroup points 3)))
   (define bbox (calculate-bbox points))
-  (object-create mesh-intersect (list triangles bbox) color))
+  (object-create mesh-intersect (list triangles bbox) color reflection))
 (define (mesh-intersect mesh ray)
   ; Checks for intersection with bounding box for optimization
   ; If passed, checks for intersection with any of the triangles
@@ -330,7 +358,7 @@
   (define rightvec (vec-normalize (vec-cross lookdir upvec)))
   (if (not (= 0 (vec-dot upvec lookdir))) (/ 1 0) 1) ; Break if up vector isn't perpendicular to look direction
 
-  (define screen-height ; tan(fov/2) = (x/2)(dist-from-camera-to-lookat)
+  (define screen-height
     (* 2
      (vec-dist camera-pos camera-lookat)
      (tan (* camera-fov pi (/ 360)))))
@@ -349,8 +377,9 @@
 
 ; Setup
 (define pi 3.141592653589793)
+(define bias 0.0001)
 (define max-depth 5)
-(define camera-pos (vec-create 0 0 30))
+(define camera-pos (vec-create 0 0 60))
 (define camera-lookat (vec-create 0 0 0))
 (define camera-up (vec-create 0 1 0))
 (define camera-fov 90)
@@ -377,15 +406,16 @@
     (list ; Normal objects
       (sphere-create 5 (vec-create 0 0 0) (vec-create 1 0 0) 0)
       (sphere-create 5 (vec-create 5 15 0) (vec-create 0 1 0) 0.8)
-      (sphere-create 10 (vec-create 0 -15 0) (vec-create 0 0 1) 0))
-    (map ; Mesh objects
-      (lambda (num)
-        (define coords (num-to-coords num))
-        (display "Found ")
-        (display (/ (length coords) 3))
-        (display " faces\n")
-        (mesh-create coords (vec-create 1 0 0)))
-      meshes)))
+      (sphere-create 10 (vec-create 0 -15 0) (vec-create 0 0 1) 0)
+      (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15) (vec-create 1 0 0) 0))
+    nil));(map ; Mesh objects
+    ;  (lambda (num)
+    ;    (define coords (num-to-coords num))
+    ;    (display "Found ")
+    ;    (display (/ (length coords) 3))
+    ;    (display " faces\n")
+    ;    mesh-create coords (vec-create 1 0 0) 0))
+    ;  meshes)))
 
 ; Main draw function
 (define (draw)
