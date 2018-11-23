@@ -289,7 +289,7 @@
     light-intensity
     ;(/ (* 4 pi)                                                                      
     ;(/ (vec-distsq (ray-orig hit) list-pos))                                         ; Inverse square
-    (vec-dot (ray-dir hit) (vec-normalize (vec-sub (ray-orig hit) light-pos)))))      ; Angle between nhit and -lightdir
+    (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit))))))      ; Angle between nhit and -lightdir
 (define (get-reflect lightdir nhit)
   ; Get a reflection direction from a light direction and normal
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
@@ -297,53 +297,64 @@
 (define (ray-trace depth ray)
   ; Traces a ray into the scene
   ; Returns: vec3 (color)
-  (if (> depth max-depth)
-    (sky-color ray)
-    (let
-      ((closest (ray-closest ray objects)))
-      (if (null? closest)                           ; If no object, use sky color
-        (sky-color ray)
-        (let
+  (define closest (ray-closest ray objects))
+  (if (or (null? closest) (> depth max-depth))                           ; If no object, use sky color
+      (sky-color ray)
+      (let
           ((hit (list-index closest 1))
            (object (list-index closest 2)))
-          (let
+        (let
             ((phit (ray-orig hit))
-            (nhit (ray-dir hit)))
-            (if (> (object-reflection object) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
+             (nhit (ray-dir hit)))
+          (if (> (object-reflection object) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
               (vec-mul
-                  (ray-trace (+ depth 1) (ray-create phit (get-reflect (vec-sub phit light-pos) nhit)))
-                  (object-reflection object))                                               
+               (ray-trace (+ depth 1) (ray-create phit (get-reflect (vec-sub phit light-pos) nhit)))
+               (object-reflection object))                                               
               (let                                                ; If object hit, cast shadow ray and calculate brightness if not in shadow
                   ((shadow-closest
                     (ray-closest (ray-create
-                      phit
-                      (vec-sub light-pos phit)) objects)))                           ; TODO: Add bias?
-                  (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
-                        (null? shadow-closest)
-                        (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
-                      (vec-mul (object-color object) (get-brightness hit))
-                      vec-zero)))))))))                                         ; Otherwise, black
+                                  phit
+                                  (vec-sub light-pos phit)) objects)))                           ; TODO: Add bias?
+                (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
+                     (null? shadow-closest)
+                     (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
+                    (vec-mul (object-color object) (get-brightness hit))
+                    vec-zero)))))))                                         ; Otherwise, black
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
-  (define fov (tan (* camera-fov pi (/ 360))))
+  (define lookdir (vec-normalize (vec-sub camera-lookat camera-pos)))
+  (define upvec (vec-normalize camera-up))
+  (define rightvec (vec-normalize (vec-cross lookdir upvec)))
+  (if (not (= 0 (vec-dot upvec lookdir))) (/ 1 0) 1) ; Break if up vector isn't perpendicular to look direction
+
+  (define screen-height ; tan(fov/2) = (x/2)(dist-from-camera-to-lookat)
+    (* 2
+     (vec-dist camera-pos camera-lookat)
+     (tan (* camera-fov pi (/ 360)))))
+  (define aspect (/ (screen_width) (screen_height)))
+  (define yscale (/ screen-height (screen_height))) ; Units per pixel
+  (define xscale (* yscale aspect))
+  (define yoffset (- y (/ (screen_height) 2) -0.5)) ; Offset in pixels from camera lookat
+  (define xoffset (- x (/ (screen_width) 2) -0.5))
+  (define screen-pos
+    (vec-add
+      (vec-add
+       (vec-mul upvec (* yscale yoffset))
+       (vec-mul rightvec (* xscale xoffset)))
+      camera-lookat))
   (ray-trace 0 (ray-create
     camera-pos
-    (vec-sub 
-     (vec-create 
-       (* (- (* 2 (/ (+ x 0.5) (screen_width))) 1) fov) 
-       (* (- 1 (* 2 (/ (+ y 0.5) (screen_height)))) fov) 
-       0) 
-     camera-pos))))
+    (vec-sub screen-pos camera-pos))))
 
 ; Setup
 (define pi 3.141592653589793)
 (define max-depth 5)
-(define camera-pos (vec-create 0 0 2))
-(define camera-lookat vec-zero)
+(define camera-pos (vec-create 0 0 30))
+(define camera-lookat (vec-create 0 0 0))
 (define camera-up (vec-create 0 1 0))
-(define camera-fov 45)
-(define light-pos (vec-create 0 1 0))
+(define camera-fov 90)
+(define light-pos (vec-create 0 30 0))
 (define light-intensity 1)
 (define (sky-color ray)
   vec-zero)
@@ -364,7 +375,7 @@
 (define objects
   (append
     (list ; Normal objects
-      (sphere-create 1 (vec-create 0 0 0) (vec-create 0.2 0.3 0.4) 0))
+      (sphere-create 15 (vec-create 0 0 0) (vec-create 1 0 0) 0))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
