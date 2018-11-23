@@ -314,7 +314,7 @@
        (* (- (* 2 (/ (+ x 0.5) screen_width)) 1) fov-calc) 
        (* (- 1 (* 2 (/ (+ y 0.5) screen_height))) fov-calc) 
        0) 
-     camera-pos)))
+     camera-pos))))
 
 ; Setup
 (define pi 3.141592653589793)
