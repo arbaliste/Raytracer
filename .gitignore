@@ -1,4 +1,7 @@
+interpreter
 interpreter/
+
+output.png
 
 *.ss~
 *.ss#*

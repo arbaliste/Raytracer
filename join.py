@@ -2,17 +2,27 @@
 # Joins the bear raw files into a scheme list
 import os
 
+rawpath = "raw"
+exclude = ["bear.raw"]
+
 def nsplit(list, n):
     l = []
     for k in range(len(list)/n):
-        l.append()
+        l.append(list[:n])
+        list = list[n:]
     return l
 
-print("'(", end="")
-for file in os.listdir("raw"):
-
-for file in ./raw/bear-*; do
-  printf "\n; %s\n" "$(basename $file)"
-  printf "(%s)" "$(cat $file | tr -d '\n')"
-done
-printf ")\n"
+for file in os.listdir(rawpath):
+    if file not in exclude:
+        print("; " + os.path.splitext(file)[0])
+        with open(os.path.join(rawpath, file)) as f:
+            for x in f.read().split():
+                sign = "2" if "-" in x else "1"
+                x = x.replace("-", "")
+                sp = x.split(".")
+                if len(sp) < 2:
+                    sp.append("")
+                leftdecim = sp[0].rjust(2, "0")
+                rightdecim = sp[1].ljust(6, "0")
+                print(leftdecim + rightdecim + sign, end="")
+            print()
