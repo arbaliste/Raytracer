@@ -328,8 +328,13 @@
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
   (ray-trace 0 (ray-create
-   camera-pos
-   (vec-create 1 0 0)))) ; Replace #f with actual ray direction
+    camera-pos
+    (vec-sub 
+     (vec-create 
+       (* (- (* 2 (/ (+ x 0.5) screen_width)) 1) fov-calc) 
+       (* (- 1 (* 2 (/ (+ y 0.5) screen_height))) fov-calc) 
+       0) 
+     camera-pos))))
 
 ; Setup
 (define pi 3.141592653589793)
