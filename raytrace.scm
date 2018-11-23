@@ -10,6 +10,7 @@
 ;;;    its inner meaning.>
 
 ; Uncomment for running in racket
+#lang racket
 (require racket/draw)
 (define (screen_width) 500)
 (define (screen_height) 500)
@@ -177,7 +178,7 @@
          (if (< t 0)
              nil
              ((lambda ()
-               (define phit (+ origin (* direction t)))
+               (define phit (vec-add origin (vec-mul direction t)))
                (define nhit (vec-sub phit position))
                (ray-create phit nhit))))))))
 (define (sphere-radius sphere) (list-index (object-properties sphere) 0))
@@ -300,39 +301,38 @@
     (sky-color ray)
     (let
       ((closest (ray-closest ray objects)))
-      (if (null? closest)
+      (if (null? closest)                           ; If no object, use sky color
         (sky-color ray)
         (let
-          ((hit (list-index closest 1)))
+          ((hit (list-index closest 1))
+           (object (list-index closest 2)))
           (let
             ((phit (ray-orig hit))
             (nhit (ray-dir hit)))
-            (cond
-              ((null? closest) (sky-color ray))                           ; If no object, use sky color
-              ((> (object-reflection closest) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
-                (vec-mul
-                  (ray-trace (+ depth 1) (ray-create (ray-orig closest) (get-reflect (vec-sub hit light-pos) nhit)))
-                  (object-reflection closest)))                                               
-              (else
-                (let                                                ; If object hit, cast shadow ray and calculate brightness if not in shadow
+            (if (> (object-reflection object) 0)                          ; If reflects, recurse with reflection and multiply by reflection amount
+              (vec-mul
+                  (ray-trace (+ depth 1) (ray-create phit (get-reflect (vec-sub phit light-pos) nhit)))
+                  (object-reflection object))                                               
+              (let                                                ; If object hit, cast shadow ray and calculate brightness if not in shadow
                   ((shadow-closest
                     (ray-closest (ray-create
-                      (ray-orig hit)
-                      (vec-sub light-pos hit)))))                           ; TODO: Add bias?
+                      phit
+                      (vec-sub light-pos phit)) objects)))                           ; TODO: Add bias?
                   (if (or                                                   ; If no intersecting object with shadow ray or object is beyond light, illuminate
                         (null? shadow-closest)
-                        (> (square (list-index shadow-closest 0)) (vec-distsq (ray-orig hit) light-pos)))
-                      (vec-mul (object-color closest) (get-brightness hit))
-                      vec-zero))))))))))                                         ; Otherwise, black
+                        (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
+                      (vec-mul (object-color object) (get-brightness hit))
+                      vec-zero)))))))))                                         ; Otherwise, black
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
+  (define fov (tan (* camera-fov pi (/ 360))))
   (ray-trace 0 (ray-create
     camera-pos
     (vec-sub 
      (vec-create 
-       (* (- (* 2 (/ (+ x 0.5) screen_width)) 1) fov-calc) 
-       (* (- 1 (* 2 (/ (+ y 0.5) screen_height))) fov-calc) 
+       (* (- (* 2 (/ (+ x 0.5) (screen_width))) 1) fov) 
+       (* (- 1 (* 2 (/ (+ y 0.5) (screen_height)))) fov) 
        0) 
      camera-pos))))
 
@@ -364,27 +364,15 @@
 (define objects
   (append
     (list ; Normal objects
-      (sphere-create 1 (vec-create 0 0 0) (vec-create 1 0 0) 0))
+      (sphere-create 1 (vec-create 0 0 0) (vec-create 0.2 0.3 0.4) 0))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
         (display "Found ")
         (display (/ (length coords) 3))
         (display " faces\n")
-        (mesh-create coords (vec-create 0 0 1)))
+        (mesh-create coords (vec-create 1 0 0)))
       meshes)))
-
-; ; Prints mesh triangles
-; (display
-;   (map
-;     (lambda (x)
-;       (map
-;         (lambda (triangle)
-;           (list (triangle-p1 triangle) (triangle-p2 triangle) (triangle-p3 triangle)))
-;         (mesh-triangles x)))
-;   (filter
-;     (lambda (x)
-;       (eq? (object-intersect x) mesh-intersect)) objects)))
 
 ; Main draw function
 (define (draw)
