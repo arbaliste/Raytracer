@@ -19,8 +19,7 @@
 (define (exitonclick) (send target save-file "output.png" 'png))
 (send dc set-pen "" 0 'transparent)
 (define (pixel x y color)
- (send dc set-brush color 'solid)
- (send dc draw-rectangle x y x y))
+ (send dc set-pixel x (- (screen_height) 1 y) color))
 (define (rgb r g b)
  (make-object color%
    (exact-round (exact->inexact (* 255 r)))
@@ -71,7 +70,7 @@
 (define (loop-range min-val max-val func)
   ; Basically a for loop
   (func min-val)
-  (if (< min-val max-val)
+  (if (< (+ min-val 1) max-val)
       (loop-range (+ min-val 1) max-val func)
       nil))
 (define (zip pairs)
@@ -116,6 +115,10 @@
         (func (car s) (car (cdr s)))
         (cdr (cdr s))))))
 (define (square x) (* x x))
+(define (round x)
+  (if (>= x 0)
+      (floor (+ x 0.5))
+      (- (round (- x)))))
 
 ; Vectors
 ; Vector structure: (x y z)
@@ -165,11 +168,13 @@
     color))
 (define (make-checkerboard-color color1 color2 gridsize)
   (lambda (object point)
-    (define modvec (map (lambda (p) (modulo (floor (/ p gridsize)) 2)) point))
+    (define modvec (map (lambda (p) (modulo (round (/ p gridsize)) 2)) point))
     (define xmod (vec-x modvec))
     (define ymod (vec-y modvec))
     (define zmod (vec-z modvec))
-    (if (= xmod zmod)
+    (if (if (= ymod 0)
+          (= xmod zmod)
+          (not (= xmod zmod)))
         color1
         color2)))
 ; Planes
@@ -410,7 +415,7 @@
      (vec-dist camera-pos camera-lookat)
      (tan (* camera-fov pi (/ 360)))))
   (define scale (/ screen-height (screen_height))) ; Units per pixel
-  (define yoffset (- (- y (/ (screen_height) 2) -0.5))) ; Offset in pixels from camera lookat. Y is flipped because the top left of the screen is 0,0
+  (define yoffset (- y (/ (screen_height) 2) -0.5)) ; Offset in pixels from camera lookat. Y is not flipped because turtle graphics 0 is bottom
   (define xoffset (- x (/ (screen_width) 2) -0.5))
   (define screen-pos
     (vec-add
@@ -452,9 +457,9 @@
   (append
     (list ; Normal objects
       (plane-create (vec-create 0 0 0) (vec-create 0 1 0) (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0.7 0.7 0.7))
-      (sphere-create 5 (vec-create -10 5 20) (make-constant-color (vec-create 1 0 0)) vec-zero)
+      (sphere-create 5 (vec-create -10 5 20) (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero)
       (sphere-create 5 (vec-create 5 5 15) (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8))
-      (sphere-create 10 (vec-create 15 10 0) (make-constant-color (vec-create 0 0 1)) vec-zero)
+      (sphere-create 10 (vec-create 15 10 0) (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero)
       (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15) (make-constant-color (vec-create 1 0 0)) vec-zero))
     nil));(map ; Mesh objects
     ;  (lambda (num)
