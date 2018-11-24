@@ -2,6 +2,7 @@ interpreter
 interpreter/
 
 output.png
+*.blend1
 
 *.ss~
 *.ss#*
