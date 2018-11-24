@@ -9,6 +9,12 @@
 ;;;    Use these three lines to describe
 ;;;    its inner meaning.>
 
+; Math from:
+; https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-generating-camera-rays
+; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes
+; https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle
+; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading
+
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
@@ -28,11 +34,6 @@
 (define nil '())
 
 ; General utils
-(define (all l)
-  (cond
-    ((null? l) #t)
-    ((not (car l)) #f)
-    (all (cdr l))))
 (define (clamp oldmin oldmax newmin newmax val)
   (+ (* (/ (- val oldmin) (- oldmax oldmin)) (- newmax newmin)) newmin))
 (define (min a b)
@@ -212,7 +213,6 @@
 (define (sphere-create radius vec material)
   (object-create sphere-intersect (list radius vec) material))
 (define (sphere-intersect sphere ray)
-  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-sphere-intersection
   (define radius (sphere-radius sphere))
   (define position (sphere-position sphere))
   (define origin (ray-orig ray))
@@ -244,43 +244,35 @@
 (define (triangle-create p1 p2 p3 material)
   (object-create triangle-intersect (list p1 p2 p3) material))
 (define (triangle-intersect triangle ray)
-  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/ray-tracing-rendering-a-triangle/geometry-of-a-triangle
   ;
   ;    C
   ;   ^  
   ;  /    
   ; A ---> B
+  ; CCW definition
   (define origin (ray-orig ray))
   (define direction (ray-dir ray))
   (define a (triangle-p1 triangle))
   (define b (triangle-p2 triangle))
   (define c (triangle-p3 triangle))
-  (define AB (vec-sub b a))
-  (define AC (vec-sub c a))
-  (define normal (vec-cross AB AC))
-  (define areasq (vec-magnitudesq normal))
-  (define normdotray (vec-dot normal direction))
-  (if (< (abs normdotray) bias) ; Remove abs for back culling
+  (define invnorm (vec-cross (vec-sub c a) (vec-sub b a)))
+  (define normal (vec-mul invnorm -1))
+  (define denom (vec-dot invnorm direction))
+  (if (< (abs denom) bias) ; (abs normdotray) for backwards triangles
       nil
       (let
-        ((t (/ (+ (vec-dot normal origin) (vec-dot normal a)) normdotray)))
+          ((t (/ (vec-dot (vec-sub a origin) invnorm) denom)))
         (if (< t 0)
             nil
             (let
-              ((phit (vec-add origin (vec-mul direction t))))
+                ((phit (vec-add origin (vec-mul direction t))))
               (if
-               (all
-                (map
-                 (lambda (p)
-                   (define point (car p))
-                   (define edge (cdr p))
-                   (>= (vec-dot normal (vec-cross edge (vec-sub phit point))) 0))
-                 (list
-                  (cons a (vec-sub b a))
-                  (cons b (vec-sub c b))
-                  (cons c (vec-sub a c)))))
-              (ray-create phit (vec-normalize normal))
-              nil))))))
+               (and
+                (> (vec-dot normal (vec-cross (vec-sub b a) (vec-sub phit a))) 0)
+                (> (vec-dot normal (vec-cross (vec-sub c b) (vec-sub phit b))) 0)
+                (> (vec-dot normal (vec-cross (vec-sub a c) (vec-sub phit c))) 0))
+               (ray-create phit (vec-normalize normal))
+               nil))))))
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
@@ -297,7 +289,6 @@
       (reduce max (map vec-z points)))))
 (define (bbox-intersect? bbox ray)
   ; Checks if a bounding box intersects with a ray, returns a BOOLEAN (NOT standard intersect function)
-  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/minimal-ray-tracer-rendering-simple-shapes/ray-box-intersection
   ; TODO
   #t)
 (define (mesh-create points material)
@@ -374,26 +365,25 @@
       objects)))
 (define (get-brightness hit)
   ; Gets brightness as a function of hit position, hit normal, light position, and light intensity
-  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/shading-spherical-light
   ; Returns: number from 0 to 1
   (vec-mul
     light-color
     (max 0 (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit)))))))      ; Angle between nhit and -lightdir
 (define (get-reflect dir nhit)
   ; Get a reflection direction from a direction and normal
-  ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
   (vec-sub dir (vec-mul nhit (* 2 (vec-dot dir nhit)))))
 (define (get-refract dir nhit ior)
-  (define cosi (vec-dot (vec-normalize dir) (vec-normalize nhit)))
-  (define abs-cosi (abs cosi))
+  ; Get a refraction direction (or none if total internal reflection) from direction, normal, and ior
+  (define cos-diff (vec-dot (vec-normalize dir) (vec-normalize nhit)))
+  (define abs-cos-diff (abs cos-diff))
   (define fixed-normal
-    (if (> cosi 0) nhit (vec-mul nhit -1)))
+    (if (> cos-diff 0) (vec-mul nhit -1) nhit))
   (define ior-ratio
-    (if (> cosi 0) ior (/ ior)))
-  (define k (- 1 (* (square ior-ratio) (- 1 (square abs-cosi)))))
-  (if (< k 0)
+    (if (> cos-diff 0) ior (/ ior)))
+  (define c2sq (- 1 (* (square ior-ratio) (- 1 (square abs-cos-diff)))))
+  (if (< c2sq 0)
       vec-zero
-      (vec-add (vec-mul dir ior-ratio) (vec-mul fixed-normal (- (* ior-ratio abs-cosi) (sqrt k))))))
+      (vec-add (vec-mul dir ior-ratio) (vec-mul fixed-normal (- (* ior-ratio abs-cos-diff) (sqrt c2sq))))))
 (define (get-fresnel dir nhit ior)
   (define cosi (vec-dot (vec-normalize dir) (vec-normalize nhit)))
   (define etai
@@ -429,24 +419,29 @@
                (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
                  (ray-closest
                   (ray-create
-                   phit
-                   (vec-sub light-pos phit)) objects)) ; TODO: Add bias?
+                   (vec-add phit (vec-mul nhit bias))
+                   (vec-sub light-pos phit)) objects))
                (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
                     (null? shadow-closest)
                     (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
                    (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
                    vec-zero))))
           (define reflect-refract-component
-            (if (or ; REFLECT / REFRACT
+            (if (or
                 (> reflection-mag 0)
                 (> refraction-mag 0))
               ((lambda ()
                  (define inside (<= (vec-dot nhit direction) 0))
+                 (define signedbias (if inside (- bias) bias))
                  (define ratio (get-fresnel direction nhit (material-ior (object-material object))))
                  (define reflect-component ; Calculate reflection by tracing a ray
                   (if (> reflection-mag 0)
                     (vec-mulvec
-                      (ray-trace (+ depth 1) (ray-create phit (get-reflect direction nhit)))
+                      (ray-trace
+                       (+ depth 1)
+                       (ray-create
+                        (vec-add phit (vec-mul nhit signedbias))
+                        (get-reflect direction nhit)))
                       (material-reflection (object-material object)))
                     vec-zero))
                 (define refract-component ; Calculate refraction by tracing a ray
@@ -457,7 +452,9 @@
                      (let
                          ((refract-dir (get-refract direction nhit (material-ior (object-material object)))))
                        (if (> (vec-magnitudesq refract-dir) 0)
-                       (ray-trace (+ depth 1) (ray-create phit refract-dir))
+                       (ray-trace
+                        (+ depth 1)
+                        (ray-create (vec-add phit (vec-mul nhit signedbias)) refract-dir))
                        vec-zero)))
                     vec-zero))
                 (cond
@@ -465,7 +462,7 @@
                   ((= refraction-mag 0) reflect-component)
                   (else (vec-add (vec-mul reflect-component ratio) (vec-mul refract-component (- 1 ratio)))))))
               vec-zero))
-         (vec-colormap (vec-add diffuse-component reflect-refract-component)))))) ; Add all components together
+         (vec-colormap (vec-add diffuse-component reflect-refract-component)))))) ; Add all components together, not entirely accurate ¯\_(ツ)_/¯
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
@@ -492,14 +489,17 @@
     (vec-sub screen-pos camera-pos))))
 
 ; Setup
+; X positive is ~left
+; Y positive is ~down
+; Z positive is ~farther
 (define pi 3.141592653589793)
-(define bias 0.0001)
+(define bias 0.00001)
 (define max-depth 5)
-(define camera-pos (vec-create 0 20 50))
+(define camera-pos (vec-create 0 20 -50)) ; Camera should be on negative z for triangle winding to function properly
 (define camera-lookat (vec-create 0 0 0))
-(define camera-up (vec-cross (vec-sub camera-lookat camera-pos) (vec-create -1 0 0)))
+(define camera-up (vec-cross (vec-sub camera-lookat camera-pos) (vec-create 1 0 0)))
 (define camera-fov 90)
-(define light-pos (vec-create 0 30 30))
+(define light-pos (vec-create 0 30 -30))
 (define light-color (vec-create 1 1 1))
 (define (sky-color ray)
   (vec-create 0 0 0))
@@ -521,17 +521,19 @@
   (append
     (list ; Normal objects
       (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
-        (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0.7 0.7 0.7) vec-zero 0))
-      (sphere-create 5 (vec-create -10 5 20)
+        (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0.2 0.2 0.2) vec-zero 0))
+      (sphere-create 5 (vec-create -30 5 -20)
         (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 0))
-      (sphere-create 5 (vec-create 5 5 15)
+      (sphere-create 5 (vec-create -5 5 -10)
         (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8) vec-zero 0))
-      (sphere-create 15 (vec-create 15 15 -5)
-        (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
+      ;(sphere-create 15 (vec-create 15 15 -5)
+      ;  (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
       (sphere-create 10 (vec-create 15 10 0)
         (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 0))
-      (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15)
-        (material-create (make-constant-color (vec-create 1 0 0)) vec-zero vec-zero 0)))
+      (triangle-create (vec-create 15 0 0) (vec-create -15 0 0) (vec-create 0 15 0)
+        (material-create (make-constant-color (vec-create 1 0 0)) vec-zero vec-zero 0))
+      (triangle-create (vec-create 40 15 -20) (vec-create 0 15 -20) (vec-create 20 15 0)
+        (material-create (make-constant-color (vec-create 1 1 0)) vec-zero vec-zero 0)))
     nil));(map ; Mesh objects
     ;  (lambda (num)
     ;    (define coords (num-to-coords num))
