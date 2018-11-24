@@ -22,10 +22,18 @@ def process(num, invert=False):
     rightdecim = sp[1].ljust(6, "0")
     return leftdecim + rightdecim + sign
 
+def processvertex(v):
+    x, z, y = v
+    # Flips y and z since blender z is up
+    print(process(x) + process(y) + process(z), end="")
+
 for file in os.listdir(rawpath):
     if file not in exclude:
         print("; " + os.path.splitext(file)[0])
         with open(os.path.join(rawpath, file)) as f:
-            for x, z, y in nsplit(f.read().split(), 3):
-                print(process(x) + process(y) + process(z, True), end="")
+            for v1, v2, v3 in nsplit(nsplit(f.read().split(), 3), 3):
+                # Switches triangle direction to balance right handed coordinates
+                processvertex(v3)
+                processvertex(v2)
+                processvertex(v1)
             print()
