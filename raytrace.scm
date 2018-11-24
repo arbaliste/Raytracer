@@ -290,12 +290,8 @@
 (define (bbox-intersect? bbox ray)
   ; Checks if a bounding box intersects with a ray, returns a BOOLEAN (NOT standard intersect function)
   (define origin (ray-orig ray))
-  (define direction (ray-dir ray))
-  (define invdir (vec-mul direction -1))
-  (define signs
-    (map
-     (lambda (x) (if (< x 0) 1 0))
-     invdir))
+  (define invdir (map / (ray-dir ray)))
+  (define signs (map (lambda (x) (if (< x 0) 1 0)) invdir))
   (define (get-minmax axis max?)
     (define index
       (if max?
@@ -524,10 +520,10 @@
 (define pi 3.141592653589793)
 (define bias 0.00001)
 (define max-depth 5)
-(define camera-pos (vec-create 40 40 -60)) ; Camera should be on negative z for triangle winding to function properly
-(define camera-lookat (vec-create 0 0 0))
+(define camera-pos (vec-create -40 35 -30)) ; Camera should be on negative z for triangle winding to function properly
+(define camera-lookat (vec-create 0 20 0))
 (define camera-fov 90)
-(define light-pos (vec-create 40 60 -50))
+(define light-pos (vec-create -40 60 -50))
 (define light-color (vec-create 1 1 1))
 (define (sky-color ray)
   (vec-create 0 0 0))
@@ -550,15 +546,14 @@
     (list ; Normal objects
       (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
         (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0 0 0) vec-zero 0))
-
-      ;(sphere-create 5 (vec-create -5 5 -10)
-      ;  (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8) vec-zero 0))
       ;(sphere-create 15 (vec-create 15 15 -5)
       ;  (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
       ;(sphere-create 10 (vec-create 15 10 0)
       ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 0))
-      (sphere-create 5 (vec-create -30 5 -20)
-        (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 0)))
+      (sphere-create 10 (vec-create -30 10 10)
+        (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 0))
+      (sphere-create 25 (vec-create 30 25 -10)
+        (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8) vec-zero 0)))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
