@@ -12,8 +12,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 150)
-(define (screen_height) 150)
+(define (screen_width) 250)
+(define (screen_height) 250)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -383,9 +383,37 @@
   ; Get a reflection direction from a direction and normal
   ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading/reflection-refraction-fresnel
   (vec-sub dir (vec-mul nhit (* 2 (vec-dot dir nhit)))))
+(define (get-refract dir nhit ior)
+  (define cosi (vec-dot (vec-normalize dir) (vec-normalize nhit)))
+  (define abs-cosi (abs cosi))
+  (define fixed-normal
+    (if (> cosi 0) nhit (vec-mul nhit -1)))
+  (define ior-ratio
+    (if (> cosi 0) ior (/ ior)))
+  (define k (- 1 (* (square ior-ratio) (- 1 (square abs-cosi)))))
+  (if (< k 0)
+      vec-zero
+      (vec-add (vec-mul dir ior-ratio) (vec-mul fixed-normal (- (* ior-ratio abs-cosi) (sqrt k))))))
+(define (get-fresnel dir nhit ior)
+  (define cosi (vec-dot (vec-normalize dir) (vec-normalize nhit)))
+  (define etai
+    (if (> cosi 0) 1 ior))
+  (define etat
+    (if (> cosi 0) ior 1))
+  (define sint (* (/ etai etat) (sqrt (max 0 (- 1 (square cosi))))))
+  (if (>= sint 1)
+      1
+      ((lambda ()
+         (define cost (sqrt (max 0 (- 1 (square sint)))))
+         (define abs-cosi (abs cosi))
+         (define rs (/ (- (* etat abs-cosi) (* etai cost)) (+ (* etat abs-cosi) (* etai cost))))
+         (define rp (/ (- (* etai abs-cosi) (* etat cost)) (+ (* etai abs-cosi) (* etat cost))))
+         (/ (+ (square rs) (square rp)) 2)))))
 (define (ray-trace depth ray)
   ; Traces a ray into the scene
   ; Returns: vec3 (color)
+  (define origin (ray-orig ray))
+  (define direction (ray-dir ray))
   (define closest (ray-closest ray objects))
   (if (or (null? closest) (> depth max-depth))                           ; If no object, use sky color
       (sky-color ray)
@@ -394,32 +422,50 @@
           (define object (list-index closest 2))
           (define phit (ray-orig hit))
           (define nhit (ray-dir hit))
-          (if (or ; REFLECT / REFRACT
-                (> (vec-magnitudesq (material-reflection (object-material object))) 0)
-                (> (vec-magnitudesq (material-refraction (object-material object))) 0))
+          (define reflection-mag (vec-magnitudesq (material-reflection (object-material object))))
+          (define refraction-mag (vec-magnitudesq (material-refraction (object-material object))))
+          (define diffuse-component
+            ((lambda ()
+               (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
+                 (ray-closest
+                  (ray-create
+                   phit
+                   (vec-sub light-pos phit)) objects)) ; TODO: Add bias?
+               (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
+                    (null? shadow-closest)
+                    (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
+                   (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
+                   vec-zero))))
+          (define reflect-refract-component
+            (if (or ; REFLECT / REFRACT
+                (> reflection-mag 0)
+                (> refraction-mag 0))
               ((lambda ()
-                (define reflect-component ; Calculate reflection by tracing a ray
-                  (if (> (vec-magnitudesq (material-reflection (object-material object))) 0)
+                 (define inside (<= (vec-dot nhit direction) 0))
+                 (define ratio (get-fresnel direction nhit (material-ior (object-material object))))
+                 (define reflect-component ; Calculate reflection by tracing a ray
+                  (if (> reflection-mag 0)
                     (vec-mulvec
-                      (ray-trace (+ depth 1) (ray-create phit (get-reflect (ray-dir ray) nhit)))
+                      (ray-trace (+ depth 1) (ray-create phit (get-reflect direction nhit)))
                       (material-reflection (object-material object)))
                     vec-zero))
                 (define refract-component ; Calculate refraction by tracing a ray
-                  (if (> (vec-magnitudesq (material-refraction (object-material object))) 0)
-                    vec-zero ; TODO - Ray
+                  (if (and
+                       (> refraction-mag 0)
+                       (< ratio 1))
+                    (vec-mulvec (material-refraction (object-material object))
+                     (let
+                         ((refract-dir (get-refract direction nhit (material-ior (object-material object)))))
+                       (if (> (vec-magnitudesq refract-dir) 0)
+                       (ray-trace (+ depth 1) (ray-create phit refract-dir))
+                       vec-zero)))
                     vec-zero))
-                (vec-colormap vec-zero))) ; TODO - Fresnel
-              ((lambda () ; DIFFUSE
-                (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
-                  (ray-closest
-                    (ray-create
-                      phit
-                      (vec-sub light-pos phit)) objects)) ; TODO: Add bias?
-                (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
-                     (null? shadow-closest)
-                     (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
-                   (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
-                   vec-zero)))))))) ; Otherwise, black
+                (cond
+                  ((= reflection-mag 0) refract-component)
+                  ((= refraction-mag 0) reflect-component)
+                  (else (vec-add (vec-mul reflect-component ratio) (vec-mul refract-component (- 1 ratio)))))))
+              vec-zero))
+         (vec-colormap (vec-add diffuse-component reflect-refract-component)))))) ; Add all components together
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
@@ -480,6 +526,8 @@
         (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 0))
       (sphere-create 5 (vec-create 5 5 15)
         (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8) vec-zero 0))
+      (sphere-create 15 (vec-create 15 15 -5)
+        (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
       (sphere-create 10 (vec-create 15 10 0)
         (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 0))
       (triangle-create (vec-create 15 15 15) (vec-create 30 15 15) (vec-create 15 25 15)
