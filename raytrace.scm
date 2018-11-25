@@ -18,8 +18,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 150)
-(define (screen_height) 150)
+(define (screen_width) 300)
+(define (screen_height) 300)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -388,12 +388,12 @@
             nil
             (list (vec-distsq (ray-orig intersect) (ray-orig ray)) intersect object)))
       objects)))
-(define (get-brightness hit)
+(define (get-brightness hit light)
   ; Gets brightness as a function of hit position, hit normal, light position, and light intensity
   ; Returns: number from 0 to 1
   (vec-mul
-    light-color
-    (max 0 (vec-dot (ray-dir hit) (vec-normalize (vec-sub light-pos (ray-orig hit)))))))      ; Angle between nhit and -lightdir
+    (ray-dir light)
+    (max 0 (vec-dot (ray-dir hit) (vec-normalize (vec-sub (ray-orig light) (ray-orig hit)))))))      ; Angle between nhit and -lightdir
 (define (get-reflect dir nhit)
   ; Get a reflection direction from a direction and normal
   (vec-sub dir (vec-mul nhit (* 2 (vec-dot dir nhit)))))
@@ -440,17 +440,19 @@
           (define reflection-mag (vec-magnitudesq (material-reflection (object-material object))))
           (define refraction-mag (vec-magnitudesq (material-refraction (object-material object))))
           (define diffuse-component
-            ((lambda ()
-               (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
-                 (ray-closest
-                  (ray-create
-                   (vec-add phit (vec-mul nhit bias))
-                   (vec-sub light-pos phit)) objects))
-               (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
-                    (null? shadow-closest)
-                    (> (square (list-index shadow-closest 0)) (vec-distsq phit light-pos)))
-                   (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit))
-                   vec-zero))))
+            (reduce vec-add
+                    (map (lambda (light)
+                           (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
+                             (ray-closest
+                              (ray-create
+                               (vec-add phit (vec-mul nhit bias))
+                               (vec-sub (ray-orig light) phit)) objects))
+                           (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
+                                (null? shadow-closest)
+                                (> (square (list-index shadow-closest 0)) (vec-distsq phit (ray-orig light))))
+                               (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit light))
+                               vec-zero))
+                         lights)))
           (define reflect-refract-component
             (if (or
                 (> reflection-mag 0)
@@ -520,11 +522,13 @@
 (define pi 3.141592653589793)
 (define bias 0.00001)
 (define max-depth 5)
-(define camera-pos (vec-create -40 35 -30)) ; Camera should be on negative z for triangle winding to function properly
-(define camera-lookat (vec-create 0 20 0))
+(define camera-pos (vec-create -50 35 -60)) ; Camera should be on negative z for triangle winding to function properly
+(define camera-lookat (vec-create -20 20 0))
 (define camera-fov 90)
-(define light-pos (vec-create -40 60 -50))
-(define light-color (vec-create 1 1 1))
+(define lights ; Lights are represented as rays
+  (list
+   (ray-create (vec-create -40 60 -50) (vec-create 1 1 1))
+   (ray-create (vec-create 0 60 20) (vec-create 1 1 1))))
 (define (sky-color ray)
   (vec-create 0 0 0))
 (define meshes '( ; Go bEaRs! 💛🐻💙
@@ -545,15 +549,15 @@
   (append
     (list ; Normal objects
       (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
-        (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0 0 0) vec-zero 0))
+        (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0 0 0) vec-zero 1))
       ;(sphere-create 15 (vec-create 15 15 -5)
       ;  (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
       ;(sphere-create 10 (vec-create 15 10 0)
-      ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 0))
-      (sphere-create 10 (vec-create -30 10 10)
-        (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 0))
-      (sphere-create 25 (vec-create 30 25 -10)
-        (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0.8 0.8 0.8) vec-zero 0)))
+      ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1))
+      (sphere-create 10 (vec-create -40 10 -20)
+        (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 1))
+      (sphere-create 15 (vec-create -50 25 0)
+        (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1)))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
@@ -561,7 +565,7 @@
         (display (/ (length coords) 3))
         (display " faces\n")
         ;(sphere-create 0 vec-zero (material-create (make-constant-color vec-zero) vec-zero vec-zero 0)))
-        (mesh-create coords (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 0)))
+        (mesh-create coords (material-create (make-constant-color (vec-create 0.7686 0.5098 0.0588)) vec-zero vec-zero 1)))
       meshes)))
 
 ; Main draw function
