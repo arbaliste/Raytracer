@@ -34,16 +34,21 @@
 (define nil '())
 
 ; General utils
-(define (clamp oldmin oldmax newmin newmax val)
-  (+ (* (/ (- val oldmin) (- oldmax oldmin)) (- newmax newmin)) newmin))
+(define (random-gen seed n min max)
+  ; Generates n "random" numbers from min to max with a seed
+  (define a 22695477)
+  (define c 1)
+  (define mod (expt 2 32))
+  (define (iter seed n prev)
+    (define new (modulo (+ (* a seed) c) mod))
+    (if (= n 0)
+        prev
+        (iter new (- n 1) (cons (+ min (* (- max min) (/ new mod))) prev))))
+  (reverse (iter seed n nil)))
 (define (min a b)
-  (if (< a b)
-      a
-      b))
+  (if (< a b) a b))
 (define (max a b)
-  (if (< a b)
-      b
-      a))
+  (if (< a b) b a))
 (define (ntake list n)
     ; Takes n elements from a list and returns (first-n . remaining)
     ; WARNING: Not tail recursive, n shouldn't be large
@@ -190,9 +195,11 @@
 ; Planes
 ; Plane properties: (p normal)
 (define (plane-create p normal material)
-  (object-create plane-intersect (list p normal) material))
+  (define realnorm (vec-normalize normal))
+  (define invnorm (vec-mul (vec-normalize normal) -1))
+  (object-create plane-intersect (list p realnorm invnorm) material))
 (define (plane-intersect plane ray)
-  (define invnorm (vec-mul (vec-normalize (plane-normal plane)) -1))
+  (define invnorm (plane-invnorm plane))
   (define point (plane-point plane))
   (define direction (ray-dir ray))
   (define origin (ray-orig ray))
@@ -208,6 +215,25 @@
   (list-index (object-properties plane) 0))
 (define (plane-normal plane)
   (list-index (object-properties plane) 1))
+(define (plane-invnorm plane)
+  (list-index (object-properties plane) 2))
+; Disks
+; Disk properties: (radius plane)
+; Basically a plane with a radius
+(define (disk-create p normal radius material)
+  (define plane
+    (plane-create p normal material))
+  (object-create disk-intersect (list radius plane) material))
+(define (disk-intersect disk ray)
+  (define plane (disk-plane disk))
+  (define intersect (plane-intersect plane ray))
+  (if (null? intersect)
+      nil
+      (if (< (vec-distsq (plane-point plane) (ray-orig intersect)) (square (disk-radius disk)))
+          intersect
+          nil)))
+(define (disk-radius disk) (list-index (object-properties disk) 0))
+(define (disk-plane disk) (list-index (object-properties disk) 1))
 ; Spheres
 ; Sphere properties: (radius position)
 (define (sphere-create radius vec material)
@@ -240,9 +266,12 @@
 (define (sphere-radius sphere) (list-index (object-properties sphere) 0))
 (define (sphere-position sphere) (list-index (object-properties sphere) 1))
 ; Triangles
-; Triangle properties: (p1 p2 p3)
+; Triangle properties: (p1 p2 p3 plane)
+; Basically another constrained plane
 (define (triangle-create p1 p2 p3 material)
-  (object-create triangle-intersect (list p1 p2 p3) material))
+  (define plane
+    (plane-create p1 (vec-cross (vec-sub p2 p1) (vec-sub p3 p1)) material))
+  (object-create triangle-intersect (list p1 p2 p3 plane) material)) ; Pre-computes plane for easier collision detection
 (define (triangle-intersect triangle ray)
   ;
   ;    C
@@ -255,27 +284,24 @@
   (define a (triangle-p1 triangle))
   (define b (triangle-p2 triangle))
   (define c (triangle-p3 triangle))
-  (define invnorm (vec-cross (vec-sub c a) (vec-sub b a)))
-  (define normal (vec-mul invnorm -1))
-  (define denom (vec-dot invnorm direction))
-  (if (< (abs denom) bias) ; (abs normdotray) for backwards triangles
+  (define plane (triangle-plane triangle))
+  (define normal (plane-normal plane))
+  (define intersect (plane-intersect plane ray))
+  (if (null? intersect)
       nil
       (let
-          ((t (/ (vec-dot (vec-sub a origin) invnorm) denom)))
-        (if (< t 0)
-            nil
-            (let
-                ((phit (vec-add origin (vec-mul direction t))))
-              (if
-               (and
-                (> (vec-dot normal (vec-cross (vec-sub b a) (vec-sub phit a))) 0)
-                (> (vec-dot normal (vec-cross (vec-sub c b) (vec-sub phit b))) 0)
-                (> (vec-dot normal (vec-cross (vec-sub a c) (vec-sub phit c))) 0))
-               (ray-create phit (vec-normalize normal))
-               nil))))))
+          ((phit (ray-orig intersect)))
+        (if
+         (and
+          (> (vec-dot normal (vec-cross (vec-sub b a) (vec-sub phit a))) 0)
+          (> (vec-dot normal (vec-cross (vec-sub c b) (vec-sub phit b))) 0)
+          (> (vec-dot normal (vec-cross (vec-sub a c) (vec-sub phit c))) 0))
+         (ray-create phit (vec-normalize normal))
+         nil))))
 (define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
 (define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
 (define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
+(define (triangle-plane triangle) (list-index (object-properties triangle) 3))
 (define (calculate-bbox points)
   ; Finds the smallest bounding box around a set of points, represented as (min max)
   (list
@@ -522,8 +548,8 @@
 (define pi 3.141592653589793)
 (define bias 0.00001)
 (define max-depth 5)
-(define camera-pos (vec-create -50 35 -60)) ; Camera should be on negative z for triangle winding to function properly
-(define camera-lookat (vec-create -20 20 0))
+(define camera-pos (vec-create -50 35 -60)) ; Camera might have to be on negative z for triangle winding to function properly?
+(define camera-lookat (vec-create 0 0 0))
 (define camera-fov 90)
 (define lights ; Lights are represented as rays
   (list
@@ -545,19 +571,28 @@
 ; bear-leg3
 091855531123928431020717962044373111041626691011391682044933891150734051035052802095277781008159001021773471091855531123928431020717962101085611141411481047261771083006331032576431009776772095277781008159001021773471093355781012920571046569192070136061148072201067679421095277781008159001021773471101085611141411481047261771095277781008159001021773471083006331032576431009776772091855531123928431020717962093355781012920571046569192095277781008159001021773471057299961002319541052361231057299961002319541052361231095277781008159001021773471070136061148072201067679421070136061148072201067679421037502031129764211055505691057299961002319541052361231025406531000524131018944261025685581130947261019799441044373111041626691011391682044933891150734051035052802044373111041626691011391682025685581130947261019799441025406531000524131018944261057299961002319541052361231037502031129764211055505691037502031129764211055505691025685581130947261019799441025406531000524131018944261044373111041626691011391682091855531123928431020717962083006331032576431009776772044373111041626691011391682083006331032576431009776772093355781012920571046569192058534461005552711058945732093355781012920571046569192057299961002319541052361231025406531000524131018944261058534461005552711058945732057299961002319541052361231044373111041626691011391682058534461005552711058945732025406531000524131018944261058534461005552711058945732044373111041626691011391682093355781012920571046569192
 ))
+(define ball-radius 90)
+(define snow-num 30)
 (define objects
-  (append
+  (reduce append (list
     (list ; Normal objects
-      (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
-        (material-create (make-checkerboard-color (vec-create 0.3 0.3 0.3) (vec-create 0.5 0.5 0.5) 10) (vec-create 0 0 0) vec-zero 1))
       ;(sphere-create 15 (vec-create 15 15 -5)
       ;  (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
       ;(sphere-create 10 (vec-create 15 10 0)
       ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1))
-      (sphere-create 10 (vec-create -40 10 -20)
-        (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 1))
-      (sphere-create 15 (vec-create -50 25 0)
-        (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1)))
+      ;(sphere-create 10 (vec-create -40 10 -20)
+      ;  (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 1))
+      ;(sphere-create 15 (vec-create -50 25 0)
+      ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1))
+      (disk-create (vec-create 0 0.0001 0) (vec-create 0 1 0) ball-radius
+        (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1))
+      (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
+        (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0 0 0) vec-zero 1)))
+    ;(map ; Snow!
+    ; (lambda (coord)
+    ;   (sphere-create 3 coord
+    ;    (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1)))
+    ; (ngroup (random-gen 1868 (* 3 snow-num) 40 ball-radius) 3))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
@@ -566,7 +601,7 @@
         (display " faces\n")
         ;(sphere-create 0 vec-zero (material-create (make-constant-color vec-zero) vec-zero vec-zero 0)))
         (mesh-create coords (material-create (make-constant-color (vec-create 0.7686 0.5098 0.0588)) vec-zero vec-zero 1)))
-      meshes)))
+      meshes))))
 
 ; Main draw function
 (define (draw)
