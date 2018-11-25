@@ -18,8 +18,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 300)
-(define (screen_height) 300)
+(define (screen_width) 100)
+(define (screen_height) 100)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -34,8 +34,12 @@
 (define nil '())
 
 ; General utils
-(define (random-gen seed n min max)
-  ; Generates n "random" numbers from min to max with a seed
+(define (rescale oldmin oldmax newmin newmax val)
+  (+ (* (/ (- val oldmin) (- oldmax oldmin)) (- newmax newmin)) newmin))
+(define (clamp low high num)
+  (max low (min high num)))
+(define (random-gen seed n)
+  ; Generates n "random" numbers from 0 to 1 with a seed
   (define a 22695477)
   (define c 1)
   (define mod (expt 2 32))
@@ -43,7 +47,7 @@
     (define new (modulo (+ (* a seed) c) mod))
     (if (= n 0)
         prev
-        (iter new (- n 1) (cons (+ min (* (- max min) (/ new mod))) prev))))
+        (iter new (- n 1) (cons (/ new mod) prev))))
   (reverse (iter seed n nil)))
 (define (min a b)
   (if (< a b) a b))
@@ -548,15 +552,16 @@
 (define pi 3.141592653589793)
 (define bias 0.00001)
 (define max-depth 5)
-(define camera-pos (vec-create -50 35 -60)) ; Camera might have to be on negative z for triangle winding to function properly?
+(define camera-pos (vec-create -95 30 -95)) ; Camera might have to be on negative z for triangle winding to function properly?
 (define camera-lookat (vec-create 0 0 0))
 (define camera-fov 90)
-(define lights ; Lights are represented as rays
+(define lights ; Lights are represented as rays. If light colors add up to more than (1 1 1), object color may be messed up
   (list
-   (ray-create (vec-create -40 60 -50) (vec-create 1 1 1))
-   (ray-create (vec-create 0 60 20) (vec-create 1 1 1))))
+   (ray-create (vec-create -100 100 -100) (vec-create 1 1 1))
+   (ray-create (vec-create -100 5 -100) (vec-create 1 1 1))
+   (ray-create (vec-create 0 50 0) (vec-create 1 1 1))))
 (define (sky-color ray)
-  (vec-create 0 0 0))
+  (vec-create 0.1529 0.0588 0.2118))
 (define meshes '( ; Go bEaRs! 💛🐻💙
 ; bear-leg4
 041973142042312051005567432074614772039374801014195442067274712134982511033096242041973142042312051005567432093570182018218851045818382074614772039374801014195442041973142042312051005567432033940112005804711047072542093570182018218851045818382041973142042312051005567432029598152136541121007526762033214752130980111053919141029598152136541121007526762041973142042312051005567432067274712134982511033096242057669132003080081052531351062513452144874381067899301099733102003176731028516901062513452144874381067899301057669132003080081052531351028166372000979081023144411033214752130980111053919141062513452144874381067899301028166372000979081023144411028166372000979081023144411041973142042312051005567432033214752130980111053919141073374882005808861055178962033940112005804711047072542099733102003176731028516901041973142042312051005567432028166372000979081023144411033940112005804711047072542028166372000979081023144411057669132003080081052531351099733102003176731028516901033940112005804711047072542028166372000979081023144411099733102003176731028516901062513452144874381067899301094972462182143671062129391099733102003176731028516901067274712134982511033096242099733102003176731028516901122012502251768741032769552099733102003176731028516901067274712134982511033096242074614772039374801014195442093570182018218851045818382073374882005808861055178962099733102003176731028516901074614772039374801014195442093570182018218851045818382099733102003176731028516901033940112005804711047072542073374882005808861055178962093570182018218851045818382094972462182143671062129391122012502251768741032769552099733102003176731028516901
@@ -572,36 +577,60 @@
 091855531123928431020717962044373111041626691011391682044933891150734051035052802095277781008159001021773471091855531123928431020717962101085611141411481047261771083006331032576431009776772095277781008159001021773471093355781012920571046569192070136061148072201067679421095277781008159001021773471101085611141411481047261771095277781008159001021773471083006331032576431009776772091855531123928431020717962093355781012920571046569192095277781008159001021773471057299961002319541052361231057299961002319541052361231095277781008159001021773471070136061148072201067679421070136061148072201067679421037502031129764211055505691057299961002319541052361231025406531000524131018944261025685581130947261019799441044373111041626691011391682044933891150734051035052802044373111041626691011391682025685581130947261019799441025406531000524131018944261057299961002319541052361231037502031129764211055505691037502031129764211055505691025685581130947261019799441025406531000524131018944261044373111041626691011391682091855531123928431020717962083006331032576431009776772044373111041626691011391682083006331032576431009776772093355781012920571046569192058534461005552711058945732093355781012920571046569192057299961002319541052361231025406531000524131018944261058534461005552711058945732057299961002319541052361231044373111041626691011391682058534461005552711058945732025406531000524131018944261058534461005552711058945732044373111041626691011391682093355781012920571046569192
 ))
 (define ball-radius 90)
-(define snow-num 30)
-(define objects
+(define snow-radius 1)
+(define snow-populate-radius 80)
+(define snow-num 120)
+(define inner-num 15)
+(define inner-radius-min 3)
+(define inner-radius-max 15)
+(define inner-populate-radius 65)
+(define calgold (make-constant-color (vec-create 0.9922 0.7098 0.0824)))
+(define calblue (make-constant-color (vec-create 0 0.196 0.3943)))
+(define objects (filter (lambda (x) (not (null? x)))
   (reduce append (list
     (list ; Normal objects
-      ;(sphere-create 15 (vec-create 15 15 -5)
-      ;  (material-create (make-constant-color (vec-create 0 0 0)) (vec-create 0.8 0.8 0.8) (vec-create 1 1 1) 1.1))
-      ;(sphere-create 10 (vec-create 15 10 0)
-      ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1))
-      ;(sphere-create 10 (vec-create -40 10 -20)
-      ;  (material-create (make-constant-color (vec-create 0 0.196 0.3943)) vec-zero vec-zero 1))
-      ;(sphere-create 15 (vec-create -50 25 0)
-      ;  (material-create (make-constant-color (vec-create 0.9922 0.7098 0.0824)) vec-zero vec-zero 1))
+      (sphere-create 15 (vec-create -70 15 -10)
+        (material-create calblue vec-zero vec-zero 1))
+      (sphere-create 7 (vec-create -65 7 -25)
+        (material-create calblue vec-zero vec-zero 1))
       (disk-create (vec-create 0 0.0001 0) (vec-create 0 1 0) ball-radius
         (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1))
-      (plane-create (vec-create 0 0 0) (vec-create 0 1 0)
-        (material-create (make-constant-color (vec-create 0.2 0.2 0.2)) (vec-create 0 0 0) vec-zero 1)))
-    ;(map ; Snow!
-    ; (lambda (coord)
-    ;   (sphere-create 3 coord
-    ;    (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1)))
-    ; (ngroup (random-gen 1868 (* 3 snow-num) 40 ball-radius) 3))
+      (disk-create (vec-create 0 0 0) (vec-create 0 1 0) (* 1.5 ball-radius)
+        (material-create (make-constant-color (vec-create 0.3255 0.3843 0.4353)) vec-zero vec-zero 1)))
+    (map ; Snow!
+     (lambda (coord)
+       (define scaledcoord
+         (vec-create
+          (rescale 0 1 (- snow-populate-radius) snow-populate-radius (vec-x coord))
+          (rescale 0 1 10 snow-populate-radius (vec-y coord))
+          (rescale 0 1 (- snow-populate-radius) snow-populate-radius (vec-z coord))))
+       (if (> (vec-magnitudesq scaledcoord) (square snow-populate-radius))
+           nil
+           (sphere-create snow-radius scaledcoord
+                          (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1))))
+     (ngroup (random-gen 1868 (* 3 snow-num)) 3))
+    (map ; Spheres
+     (lambda (coord)
+       (define scaledradius (+ inner-radius-min (rescale 0 1 0 (- inner-radius-max inner-radius-min) (vec-y coord))))
+       (define scaledcoord
+         (vec-create
+          (rescale 0 1 (- inner-populate-radius) inner-populate-radius (vec-x coord))
+          scaledradius
+          (rescale 0 1 (- inner-populate-radius) inner-populate-radius (vec-z coord))))
+       (if (> (vec-magnitudesq scaledcoord) (square inner-populate-radius))
+           nil
+           (sphere-create scaledradius scaledcoord
+                          (material-create calblue vec-zero vec-zero 1))))
+     (ngroup (random-gen 1 (* 3 inner-num)) 3))
     (map ; Mesh objects
       (lambda (num)
         (define coords (num-to-coords num))
         (display "Found ")
         (display (/ (length coords) 3))
         (display " faces\n")
-        ;(sphere-create 0 vec-zero (material-create (make-constant-color vec-zero) vec-zero vec-zero 0)))
-        (mesh-create coords (material-create (make-constant-color (vec-create 0.7686 0.5098 0.0588)) vec-zero vec-zero 1)))
-      meshes))))
+        ;nil)
+        (mesh-create coords (material-create calgold vec-zero vec-zero 1)))
+      meshes)))))
 
 ; Main draw function
 (define (draw)
