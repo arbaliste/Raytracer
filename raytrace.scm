@@ -18,8 +18,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 30)
-(define (screen_height) 30)
+(define (screen_width) 150)
+(define (screen_height) 150)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -299,17 +299,17 @@
           (axis signs)))
     (* (- (axis (list-index bbox index)) (axis origin)) (axis invdir)))
            
-  (define tmin (get-minmax vec-x #f))
-  (define tmax (get-minmax vec-x #t))
+  (define txmin (get-minmax vec-x #f))
+  (define txmax (get-minmax vec-x #t))
   (define tymin (get-minmax vec-y #f))
   (define tymax (get-minmax vec-y #t))
   (if (or
-       (> tmin tymax)
-       (> tymin tmax))
+       (> txmin tymax)
+       (> tymin txmax))
       #f
       ((lambda ()
-         (define newmin (max tymin tmin))
-         (define newmax (min tymax tmax))
+         (define newmin (max tymin txmin))
+         (define newmax (min tymax txmax))
          (define tzmin (get-minmax vec-z #f))
          (define tzmax (get-minmax vec-z #t))
          (not
