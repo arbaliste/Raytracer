@@ -4,6 +4,11 @@ interpreter/
 output.png
 *.blend1
 
+tests/
+ok
+*.ok
+*.ok_*
+
 *.ss~
 *.ss#*
 .#*.ss
