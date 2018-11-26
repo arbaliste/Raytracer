@@ -18,8 +18,8 @@
 ; Uncomment for running in racket
 #lang racket
 (require racket/draw)
-(define (screen_width) 100)
-(define (screen_height) 100)
+(define (screen_width) 150)
+(define (screen_height) 150)
 (define target (make-bitmap (screen_width) (screen_height)))
 (define dc (new bitmap-dc% [bitmap target]))
 (define (exitonclick) (send target save-file "output.png" 'png))
@@ -280,7 +280,7 @@
   ;
   ;    C
   ;   ^  
-  ;  /    
+  ;  /    color-func
   ; A ---> B
   ; CCW definition
   (define origin (ray-orig ray))
@@ -431,20 +431,23 @@
   ; Get a refraction direction (or none if total internal reflection) from direction, normal, and ior
   (define cos-diff (vec-dot (vec-normalize dir) (vec-normalize nhit)))
   (define abs-cos-diff (abs cos-diff))
+  ; Cosdiff > 0 = inside
   (define fixed-normal
     (if (> cos-diff 0) (vec-mul nhit -1) nhit))
   (define ior-ratio
     (if (> cos-diff 0) ior (/ ior)))
   (define c2sq (- 1 (* (square ior-ratio) (- 1 (square abs-cos-diff)))))
   (if (< c2sq 0)
-      vec-zero
+      nil
       (vec-add (vec-mul dir ior-ratio) (vec-mul fixed-normal (- (* ior-ratio abs-cos-diff) (sqrt c2sq))))))
 (define (get-fresnel dir nhit ior)
+  ; Returns the ratio of the reflection component
+  ; Takes in a non-fixed hit normal
   (define cosi (vec-dot (vec-normalize dir) (vec-normalize nhit)))
   (define etai
-    (if (> cosi 0) 1 ior))
-  (define etat
     (if (> cosi 0) ior 1))
+  (define etat
+    (if (> cosi 0) 1 ior))
   (define sint (* (/ etai etat) (sqrt (max 0 (- 1 (square cosi))))))
   (if (>= sint 1)
       1
@@ -476,11 +479,15 @@
                              (ray-closest
                               (ray-create
                                (vec-add phit (vec-mul nhit bias))
-                               (vec-sub (ray-orig light) phit)) objects))
+                               (vec-sub (ray-orig light) phit))
+                              (filter
+                               (lambda (x)
+                                 (> (vec-magnitudesq (material-refraction (object-material x))) 0))
+                               objects)))
                            (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
                                 (null? shadow-closest)
                                 (> (square (list-index shadow-closest 0)) (vec-distsq phit (ray-orig light))))
-                               (vec-mulvec ((material-color (object-material object)) object phit) (get-brightness hit light))
+                               (vec-mulvec ((material-color (object-material object)) object hit) (get-brightness hit light))
                                vec-zero))
                          lights)))
           (define reflect-refract-component
@@ -488,8 +495,8 @@
                 (> reflection-mag 0)
                 (> refraction-mag 0))
               ((lambda ()
-                 (define inside (<= (vec-dot nhit direction) 0))
-                 (define signedbias (if inside (- bias) bias))
+                 (define inside (< (vec-dot nhit direction) 0))
+                 (define fixednormal (vec-mul nhit (if inside (- bias) bias)))
                  (define ratio (get-fresnel direction nhit (material-ior (object-material object))))
                  (define reflect-component ; Calculate reflection by tracing a ray
                   (if (> reflection-mag 0)
@@ -497,7 +504,7 @@
                       (ray-trace
                        (+ depth 1)
                        (ray-create
-                        (vec-add phit (vec-mul nhit signedbias))
+                        (vec-add phit (vec-mul fixednormal bias))
                         (get-reflect direction nhit)))
                       (material-reflection (object-material object)))
                     vec-zero))
@@ -508,11 +515,11 @@
                     (vec-mulvec (material-refraction (object-material object))
                      (let
                          ((refract-dir (get-refract direction nhit (material-ior (object-material object)))))
-                       (if (> (vec-magnitudesq refract-dir) 0)
-                       (ray-trace
-                        (+ depth 1)
-                        (ray-create (vec-add phit (vec-mul nhit signedbias)) refract-dir))
-                       vec-zero)))
+                       (if (not (null? refract-dir))
+                           (ray-trace
+                            (+ depth 1)
+                            (ray-create (vec-add phit (vec-mul fixednormal bias)) refract-dir))
+                           vec-zero)))
                     vec-zero))
                 (cond
                   ((= reflection-mag 0) refract-component)
@@ -589,10 +596,11 @@
 (define objects (filter (lambda (x) (not (null? x)))
   (reduce append (list
     (list ; Normal objects
-      (sphere-create 15 (vec-create -70 15 -10)
-        (material-create calblue vec-zero vec-zero 1))
+      (sphere-create ball-radius (vec-create 0 0 0)
+        (material-create (make-constant-color vec-zero) (vec-create 0.9 0.9 0.9)  (vec-create 1 1 1) 1.5))
       (sphere-create 7 (vec-create -65 7 -25)
         (material-create calblue vec-zero vec-zero 1))
+      
       (disk-create (vec-create 0 0.0001 0) (vec-create 0 1 0) ball-radius
         (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1))
       (disk-create (vec-create 0 0 0) (vec-create 0 1 0) (* 1.5 ball-radius)
@@ -606,8 +614,9 @@
           (rescale 0 1 (- snow-populate-radius) snow-populate-radius (vec-z coord))))
        (if (> (vec-magnitudesq scaledcoord) (square snow-populate-radius))
            nil
-           (sphere-create snow-radius scaledcoord
-                          (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1))))
+           nil))
+           ;(sphere-create snow-radius scaledcoord
+           ;               (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1))))
      (ngroup (random-gen 1868 (* 3 snow-num)) 3))
     (map ; Spheres
      (lambda (coord)
@@ -628,8 +637,8 @@
         (display "Found ")
         (display (/ (length coords) 3))
         (display " faces\n")
-        ;nil)
-        (mesh-create coords (material-create calgold vec-zero vec-zero 1)))
+        nil)
+        ;(mesh-create coords (material-create calgold vec-zero vec-zero 1)))
       meshes)))))
 
 ; Main draw function
