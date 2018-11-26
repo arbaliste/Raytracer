@@ -40,11 +40,9 @@
   (max low (min high num)))
 (define (random-gen seed n)
   ; Generates n "random" numbers from 0 to 1 with a seed
-  (define a 6364136223846793005)
-  (define c 1442695040888963407)
   (define mod (expt 2 64))
   (define (iter seed n prev)
-    (define new (modulo (+ (* a seed) c) mod))
+    (define new (modulo (+ (* 6364136223846793005 seed) 1442695040888963407) mod))
     (if (= n 0)
         prev
         (iter new (- n 1) (cons (/ new mod) prev))))
@@ -53,30 +51,30 @@
   (if (< a b) a b))
 (define (max a b)
   (if (< a b) b a))
-(define (ntake list n)
-    ; Takes n elements from a list and returns (first-n . remaining)
+(define (ntake s n)
+    ; Takes n elements from a s and returns (first-n . remaining)
     ; WARNING: Not tail recursive, n shouldn't be large
-    (define (iter list n)
+    (define (iter s n)
       (if (= n 0)
-        (cons nil list)
+        (cons nil s)
         (let
-          ((next (iter (cdr list) (- n 1))))
+          ((next (iter (cdr s) (- n 1))))
           (cons
-            (cons (car list) (car next))
+            (cons (car s) (car next))
             (cdr next)))))
-    (iter list n))
-(define (ngroup list n)
-    ; Splits a list into sublists of n elements each
+    (iter s n))
+(define (ngroup s n)
+    ; Splits a s into subss of n elements each
     ; Tail recursive
-    (define (iter-reverse prev list)
-      (if (null? list)
+    (define (iter-reverse prev s)
+      (if (null? s)
         prev
         (let
-          ((take (ntake list n)))
+          ((take (ntake s n)))
           (iter-reverse
             (cons (car take) prev)
             (cdr take)))))
-    (reverse (iter-reverse nil list)))
+    (reverse (iter-reverse nil s)))
 (define (loop-range min-val max-val func)
   ; Basically a for loop
   (func min-val)
@@ -87,34 +85,33 @@
   ; Zips multiple lists together
   ; Returns: list of lists
   ; WARNING: Not fail recursive, lists shouldn't be large
-  (if (null? pairs)
-      '(() ())
-      (if (null? (car pairs))
-          nil
-          (cons (map car pairs) (zip (map cdr pairs))))))
-(define (list-index s index)
-  ; Gets the element of a list at an index
-  ; Returns: (index)th element of l
-  (if (= 0 index)
-      (car s)
-      (list-index (cdr s) (- index 1))))
+  ; Removed base case to save tokens
+  (if (null? (car pairs))
+      nil
+      (cons (map car pairs) (zip (map cdr pairs)))))
+(define (cadr s)
+  (car (cdr s)))
+(define (caddr s)
+  (cadr (cdr s)))
+(define (cadddr s)
+  (caddr (cdr s)))
 (define (map procedure s)
   ; Tail-recursive map, from https://cs61a.org/assets/slides/29-Tail_Calls_full.pdf
-  (define (map-reverse s m)
+  (define (map-rev s prev)
     (if (null? s)
-      m
-      (map-reverse
+      prev
+      (map-rev
         (cdr s)
-        (cons (procedure (car s)) m))))
-  (reverse (map-reverse s nil)))
+        (cons (procedure (car s)) prev))))
+  (reverse (map-rev s nil)))
 (define (reverse s)
   ; Tail-recursive reverse, from https://cs61a.org/assets/slides/29-Tail_Calls_full.pdf
-  (define (reverse-iter s r)
+  (define (reverse-iter s prev)
     (if (null? s)
-      r
+      prev
       (reverse-iter
         (cdr s)
-        (cons (car s) r))))
+        (cons (car s) prev))))
   (reverse-iter s nil))
 (define (reduce func s)
   ; Tail-recursive reduce
@@ -122,20 +119,16 @@
     (car s)
     (reduce func
       (cons
-        (func (car s) (car (cdr s)))
+        (func (car s) (cadr s))
         (cdr (cdr s))))))
 (define (square x) (* x x))
-(define (round x)
-  (if (>= x 0)
-      (floor (+ x 0.5))
-      (- (round (- x)))))
 
 ; Vectors
 ; Vector structure: (x y z)
 (define vec-create list)
-(define (vec-x vec) (list-index vec 0))
-(define (vec-y vec) (list-index vec 1))
-(define (vec-z vec) (list-index vec 2))
+(define (vec-x vec) (car vec))
+(define (vec-y vec) (cadr vec))
+(define (vec-z vec) (caddr vec))
 (define (vec-mul v1 scalar) (map (lambda (x) (* x scalar)) v1))
 (define (vec-mulvec v1 v2) (map (lambda (x) (reduce * x)) (zip (list v1 v2))))
 (define (vec-add v1 v2) (map (lambda (x) (reduce + x)) (zip (list v1 v2))))
@@ -149,16 +142,14 @@
 (define (vec-distsq v1 v2) (reduce + (map (lambda (x) (square (reduce - x))) (zip (list v1 v2)))))
 (define (vec-dist v1 v2) (sqrt (vec-distsq v1 v2)))
 (define vec-zero (vec-create 0 0 0))
+(define vec-one (vec-create 1 1 1))
 (define (vec-magnitudesq v1) (vec-dot v1 v1))
-(define (vec-magnitude v1) (sqrt (vec-magnitudesq v1)))
-(define (vec-normalize v1) (vec-mul v1 (/ 1 (vec-magnitude v1))))
-(define (vec-colormap vec) (map (lambda (x) (min x 1)) vec))  
-(define (vec-rgb vec) (apply rgb vec))
+(define (vec-normalize v1) (vec-mul v1 (/ 1 (sqrt (vec-magnitudesq v1)))))
 
 ; Rays
 (define (ray-create orig dir) (list orig (vec-normalize dir)))
-(define (ray-orig ray) (list-index ray 0))
-(define (ray-dir ray) (list-index ray 1))
+(define (ray-orig ray) (car ray))
+(define (ray-dir ray) (cadr ray))
 
 ; Objects
 ; Intersect function: determines whether an object intersects with a ray
@@ -166,36 +157,22 @@
 ;            nil if no intersection
 ; Properties: list of object type specific attributes
 ; Material: material list (below)
-(define (object-create intersect properties material)
-  (list intersect properties material))
-(define (object-intersect obj) (list-index obj 0))
-(define (object-properties obj) (list-index obj 1))
-(define (object-material obj) (list-index obj 2))
+(define object-create list) ; intersect properties material)
+(define (object-intersect obj) (car obj))
+(define (object-properties obj) (cadr obj))
+(define (object-material obj) (caddr obj))
 ; Materials
 ; Color: vec3 (color)
 ; Reflection: vec3 (color), amount reflected
 ; Transparency: vec3 (color), amount refracted
 ; Index of refraction: amount to bend light
-(define (material-create color-func reflection transparency ior)
-  (list color-func reflection transparency ior))
-(define (material-color material) (list-index material 0))
-(define (material-reflection material) (list-index material 1))
-(define (material-refraction material) (list-index material 2))
-(define (material-ior material) (list-index material 3))
-(define (make-constant-color color)
-  (lambda (object point)
-    color))
-(define (make-checkerboard-color color1 color2 gridsize)
-  (lambda (object point)
-    (define modvec (map (lambda (p) (modulo (round (/ p gridsize)) 2)) point))
-    (define xmod (vec-x modvec))
-    (define ymod (vec-y modvec))
-    (define zmod (vec-z modvec))
-    (if (if (= ymod 0)
-          (= xmod zmod)
-          (not (= xmod zmod)))
-        color1
-        color2)))
+(define material-create list) ; color reflection transparency ior
+(define (diffuse-material-create color) ; Save tokens
+  (material-create color vec-zero vec-zero)) ; Should have a 1 at the end, removed to save tokens
+(define (material-color material) (car material))
+(define (material-reflection material) (cadr material))
+(define (material-refraction material) (caddr material))
+(define (material-ior material) (cadddr material))
 ; Planes
 ; Plane properties: (p normal)
 (define (plane-create p normal material)
@@ -216,18 +193,16 @@
               nil
               (ray-create (vec-add origin (vec-mul direction t)) (plane-normal plane))))))
 (define (plane-point plane)
-  (list-index (object-properties plane) 0))
+  (car (object-properties plane)))
 (define (plane-normal plane)
-  (list-index (object-properties plane) 1))
+  (cadr (object-properties plane)))
 (define (plane-invnorm plane)
-  (list-index (object-properties plane) 2))
+  (caddr (object-properties plane)))
 ; Disks
 ; Disk properties: (radius plane)
 ; Basically a plane with a radius
 (define (disk-create p normal radius material)
-  (define plane
-    (plane-create p normal material))
-  (object-create disk-intersect (list radius plane) material))
+  (object-create disk-intersect (list radius (plane-create p normal material)) material))
 (define (disk-intersect disk ray)
   (define plane (disk-plane disk))
   (define intersect (plane-intersect plane ray))
@@ -236,8 +211,8 @@
       (if (< (vec-distsq (plane-point plane) (ray-orig intersect)) (square (disk-radius disk)))
           intersect
           nil)))
-(define (disk-radius disk) (list-index (object-properties disk) 0))
-(define (disk-plane disk) (list-index (object-properties disk) 1))
+(define (disk-radius disk) (car (object-properties disk)))
+(define (disk-plane disk) (cadr (object-properties disk)))
 ; Spheres
 ; Sphere properties: (radius position)
 (define (sphere-create radius vec material)
@@ -263,24 +238,22 @@
              (else (min t0 t1))))
          (if (< t 0)
              nil
-             ((lambda ()
-               (define phit (vec-add origin (vec-mul direction t)))
-               (define nhit (vec-sub phit position))
-               (ray-create phit nhit))))))))
-(define (sphere-radius sphere) (list-index (object-properties sphere) 0))
-(define (sphere-position sphere) (list-index (object-properties sphere) 1))
+             (let
+               ((phit (vec-add origin (vec-mul direction t))))
+               (ray-create phit (vec-sub phit position))))))))
+(define (sphere-radius sphere) (car (object-properties sphere)))
+(define (sphere-position sphere) (cadr (object-properties sphere)))
 ; Triangles
 ; Triangle properties: (p1 p2 p3 plane)
 ; Basically another constrained plane
 (define (triangle-create p1 p2 p3 material)
-  (define plane
-    (plane-create p1 (vec-cross (vec-sub p2 p1) (vec-sub p3 p1)) material))
-  (object-create triangle-intersect (list p1 p2 p3 plane) material)) ; Pre-computes plane for easier collision detection
+  (object-create triangle-intersect
+    (list p1 p2 p3 (plane-create p1 (vec-cross (vec-sub p2 p1) (vec-sub p3 p1)) material)) material)) ; Pre-computes plane for easier collision detection
 (define (triangle-intersect triangle ray)
   ;
   ;    C
-  ;   ^  
-  ;  /    color-func
+  ;   ^
+  ;  /
   ; A ---> B
   ; CCW definition
   (define origin (ray-orig ray))
@@ -302,10 +275,10 @@
           (> (vec-dot normal (vec-cross (vec-sub a c) (vec-sub phit c))) 0))
          (ray-create phit (vec-normalize normal))
          nil))))
-(define (triangle-p1 triangle) (list-index (object-properties triangle) 0))
-(define (triangle-p2 triangle) (list-index (object-properties triangle) 1))
-(define (triangle-p3 triangle) (list-index (object-properties triangle) 2))
-(define (triangle-plane triangle) (list-index (object-properties triangle) 3))
+(define (triangle-p1 triangle) (car (object-properties triangle)))
+(define (triangle-p2 triangle) (cadr (object-properties triangle)))
+(define (triangle-p3 triangle) (caddr (object-properties triangle)))
+(define (triangle-plane triangle) (cadddr (object-properties triangle)))
 (define (calculate-bbox points)
   ; Finds the smallest bounding box around a set of points, represented as (min max)
   (list
@@ -327,8 +300,8 @@
       (if max?
           (- 1 (axis signs))
           (axis signs)))
-    (* (- (axis (list-index bbox index)) (axis origin)) (axis invdir)))
-           
+    (define func (if (= index 1) cadr car))
+    (* (- (axis (func bbox)) (axis origin)) (axis invdir)))
   (define txmin (get-minmax vec-x #f))
   (define txmax (get-minmax vec-x #t))
   (define tymin (get-minmax vec-y #f))
@@ -351,7 +324,7 @@
   (define triangles
     (map
       (lambda (vertices)
-        (triangle-create (list-index vertices 0) (list-index vertices 1) (list-index vertices 2) material))
+        (triangle-create (car vertices) (cadr vertices) (caddr vertices) material))
       (ngroup points 3)))
   (define bbox (calculate-bbox points))
   (object-create mesh-intersect (list triangles bbox) material))
@@ -364,9 +337,9 @@
         ((intersect (ray-closest ray (mesh-triangles mesh))))
         (if (null? intersect)
           nil
-          (list-index intersect 1)))))
-(define (mesh-triangles mesh) (list-index (object-properties mesh) 0))
-(define (mesh-bbox mesh) (list-index (object-properties mesh) 1))
+          (cadr intersect)))))
+(define (mesh-triangles mesh) (car (object-properties mesh)))
+(define (mesh-bbox mesh) (cadr (object-properties mesh)))
 
 ; Num encoding
 (define (num-to-list num pow)
@@ -409,7 +382,7 @@
          (cond
            ((null? o1) o2)
            ((null? o2) o1)
-           ((> (list-index o1 0) (list-index o2 0)) o2)
+           ((> (car o1) (car o2)) o2)
            (else o1)))
      (map
       (lambda (object)
@@ -443,6 +416,7 @@
 (define (get-fresnel dir nhit ior)
   ; Returns the ratio of the reflection component
   ; Takes in a non-fixed hit normal
+  ; TODO: Reduce with equation thing
   (define cosi (vec-dot (vec-normalize dir) (vec-normalize nhit)))
   (define etai
     (if (> cosi 0) ior 1))
@@ -466,13 +440,47 @@
   (if (or (null? closest) (> depth max-depth))                           ; If no object, use sky color
       (sky-color ray)
       ((lambda ()
-          (define hit (list-index closest 1))
-          (define object (list-index closest 2))
+          (define hit (cadr closest))
+          (define object (caddr closest))
           (define phit (ray-orig hit))
           (define nhit (ray-dir hit))
           (define reflection-mag (vec-magnitudesq (material-reflection (object-material object))))
           (define refraction-mag (vec-magnitudesq (material-refraction (object-material object))))
-          (define diffuse-component
+          (map (lambda (x) (clamp 0 1 x))
+            (if (or
+              (> reflection-mag 0)
+              (> refraction-mag 0))
+            ((lambda ()
+               (define inside (< (vec-dot nhit direction) 0))
+               (define fixednormal (vec-mul nhit (if inside (- bias) bias)))
+               (define ratio (get-fresnel direction nhit (material-ior (object-material object))))
+               (define reflect-component ; Calculate reflection by tracing a ray
+                (if (> reflection-mag 0)
+                  (vec-mulvec
+                    (ray-trace
+                     (+ depth 1)
+                     (ray-create
+                      (vec-add phit (vec-mul fixednormal bias))
+                      (get-reflect direction nhit)))
+                    (material-reflection (object-material object)))
+                  vec-zero))
+              (define refract-component ; Calculate refraction by tracing a ray
+                (if (and
+                     (> refraction-mag 0)
+                     (< ratio 1))
+                  (vec-mulvec (material-refraction (object-material object))
+                   (let
+                       ((refract-dir (get-refract direction nhit (material-ior (object-material object)))))
+                     (if (not (null? refract-dir))
+                         (ray-trace
+                          (+ depth 1)
+                          (ray-create (vec-add phit (vec-mul fixednormal bias)) refract-dir))
+                         vec-zero)))
+                  vec-zero))
+              (cond
+                ((= reflection-mag 0) refract-component)
+                ((= refraction-mag 0) reflect-component)
+                (else (vec-add (vec-mul reflect-component ratio) (vec-mul refract-component (- 1 ratio)))))))
             (reduce vec-add
                     (map (lambda (light)
                            (define shadow-closest ; If object hit, cast shadow ray and calculate brightness if not in shadow
@@ -486,59 +494,21 @@
                                objects)))
                            (if (or ; If no intersecting object with shadow ray or object is beyond light, illuminate
                                 (null? shadow-closest)
-                                (> (square (list-index shadow-closest 0)) (vec-distsq phit (ray-orig light))))
-                               (vec-mulvec ((material-color (object-material object)) object hit) (get-brightness hit light))
+                                (> (square (car shadow-closest)) (vec-distsq phit (ray-orig light))))
+                               (vec-mulvec (material-color (object-material object)) (get-brightness hit light))
                                vec-zero))
-                         lights)))
-          (define reflect-refract-component
-            (if (or
-                (> reflection-mag 0)
-                (> refraction-mag 0))
-              ((lambda ()
-                 (define inside (< (vec-dot nhit direction) 0))
-                 (define fixednormal (vec-mul nhit (if inside (- bias) bias)))
-                 (define ratio (get-fresnel direction nhit (material-ior (object-material object))))
-                 (define reflect-component ; Calculate reflection by tracing a ray
-                  (if (> reflection-mag 0)
-                    (vec-mulvec
-                      (ray-trace
-                       (+ depth 1)
-                       (ray-create
-                        (vec-add phit (vec-mul fixednormal bias))
-                        (get-reflect direction nhit)))
-                      (material-reflection (object-material object)))
-                    vec-zero))
-                (define refract-component ; Calculate refraction by tracing a ray
-                  (if (and
-                       (> refraction-mag 0)
-                       (< ratio 1))
-                    (vec-mulvec (material-refraction (object-material object))
-                     (let
-                         ((refract-dir (get-refract direction nhit (material-ior (object-material object)))))
-                       (if (not (null? refract-dir))
-                           (ray-trace
-                            (+ depth 1)
-                            (ray-create (vec-add phit (vec-mul fixednormal bias)) refract-dir))
-                           vec-zero)))
-                    vec-zero))
-                (cond
-                  ((= reflection-mag 0) refract-component)
-                  ((= refraction-mag 0) reflect-component)
-                  (else (vec-add (vec-mul reflect-component ratio) (vec-mul refract-component (- 1 ratio)))))))
-              vec-zero))
-         (vec-colormap (vec-add diffuse-component reflect-refract-component)))))) ; Add all components together, not entirely accurate ¯\_(ツ)_/¯
+                         lights))))))))
 (define (pixel-trace x y)
   ; Get pixel color at (x, y) by casting rays
   ; Returns: vec3 (color)
   (define lookdir (vec-normalize (vec-sub camera-lookat camera-pos)))
-  (define upvec (vec-normalize (vec-cross (vec-cross lookdir (vec-create 0 1 0)) lookdir)))
-  (define rightvec (vec-normalize (vec-cross lookdir upvec)))
-  (if (< bias (vec-dot upvec lookdir)) (/ 1 0) 1) ; Break if up vector isn't perpendicular to look direction
+  (define rightvec (vec-cross lookdir (vec-create 0 1 0)))
+  (define upvec (vec-normalize (vec-cross rightvec lookdir)))
+  ;(if (< bias (vec-dot upvec lookdir)) (/ 1 0) 1) ; Break if up vector isn't perpendicular to look direction
 
   (define screen-height
     (* 2
-     (vec-dist camera-pos camera-lookat)
-     (tan (* camera-fov pi (/ 360)))))
+     (vec-dist camera-pos camera-lookat))) ; Multiply by tan(fov * pi / 360), removed to save tokens
   (define scale (/ screen-height (screen_height))) ; Units per pixel
   (define yoffset (- y (/ (screen_height) 2) -0.5)) ; Offset in pixels from camera lookat. Y is not flipped because turtle graphics 0 is bottom
   (define xoffset (- x (/ (screen_width) 2) -0.5))
@@ -556,29 +526,26 @@
 ; X positive is ~left
 ; Y positive is ~down
 ; Z positive is ~farther
-(define pi 3.141592653589793)
 (define bias 0.00001)
 (define max-depth 5)
-(define camera-pos (vec-create -62 30 -62))
+(define camera-pos (vec-create -62 50 -62))
 (define camera-lookat vec-zero)
-(define camera-fov 90)
 (define lights ; Lights are represented as rays. If light colors add up to more than (1 1 1), object color may be messed up
   (list
-   (ray-create (vec-create -100 100 -100) (vec-create 1 1 1))
-   (ray-create (vec-create -100 5 -100) (vec-create 1 1 1))
-   (ray-create (vec-create 0 50 0) (vec-create 1 1 1))))
+   (ray-create (vec-create -100 100 -100) vec-one)
+   (ray-create (vec-create -100 5 -100) vec-one)
+   (ray-create (vec-create 0 50 0) vec-one)))
 (define (sky-color ray)
-  (define color1 (vec-create 0.0275 0.0431 0.2039))
-  (define color2 (vec-create 0.1686 0.1843 0.4667))
-  (define color1pos -3000)
-  (define color2pos 20000)
-  (define yval (+ (vec-y (ray-orig ray)) (* 200000 (vec-y (ray-dir ray))))) ; Not exact
-  (define interp (clamp 0 1 (/ (- color2pos color1pos) (- yval color1pos))))
+  ; Makes a gradient-ish thing
+  (define color1 (vec-create 0.8 0.8 0.8))
+  (define color2 (vec-create 0 0.6902 0.8549))
+  (define yval (/ (+ (vec-y (ray-orig ray)) (* 250 (vec-y (ray-dir ray)))) 100))
+  (define interp (clamp 0 1 yval))
   (map
     (lambda (x)
-      (+ (list-index x 0) (* (- (list-index x 1) (list-index x 0)) interp)))
+      (+ (car x) (* (- (cadr x) (car x)) interp)))
     (zip (list color1 color2))))
-(define meshes '( ; Go bEaRs!
+(define meshes (list ; Go bEaRs!
 ; bear-leg4
 041973142042312051005567432074614772039374801014195442067274712134982511033096242041973142042312051005567432093570182018218851045818382074614772039374801014195442041973142042312051005567432033940112005804711047072542093570182018218851045818382041973142042312051005567432029598152136541121007526762033214752130980111053919141029598152136541121007526762041973142042312051005567432067274712134982511033096242057669132003080081052531351062513452144874381067899301099733102003176731028516901062513452144874381067899301057669132003080081052531351028166372000979081023144411033214752130980111053919141062513452144874381067899301028166372000979081023144411028166372000979081023144411041973142042312051005567432033214752130980111053919141073374882005808861055178962033940112005804711047072542099733102003176731028516901041973142042312051005567432028166372000979081023144411033940112005804711047072542028166372000979081023144411057669132003080081052531351099733102003176731028516901033940112005804711047072542028166372000979081023144411099733102003176731028516901062513452144874381067899301094972462182143671062129391099733102003176731028516901067274712134982511033096242099733102003176731028516901122012502251768741032769552099733102003176731028516901067274712134982511033096242074614772039374801014195442093570182018218851045818382073374882005808861055178962099733102003176731028516901074614772039374801014195442093570182018218851045818382099733102003176731028516901033940112005804711047072542073374882005808861055178962093570182018218851045818382094972462182143671062129391122012502251768741032769552099733102003176731028516901
 ; bear-head
@@ -592,73 +559,57 @@
 ; bear-leg3
 091855531123928431020717962044373111041626691011391682044933891150734051035052802095277781008159001021773471091855531123928431020717962101085611141411481047261771083006331032576431009776772095277781008159001021773471093355781012920571046569192070136061148072201067679421095277781008159001021773471101085611141411481047261771095277781008159001021773471083006331032576431009776772091855531123928431020717962093355781012920571046569192095277781008159001021773471057299961002319541052361231057299961002319541052361231095277781008159001021773471070136061148072201067679421070136061148072201067679421037502031129764211055505691057299961002319541052361231025406531000524131018944261025685581130947261019799441044373111041626691011391682044933891150734051035052802044373111041626691011391682025685581130947261019799441025406531000524131018944261057299961002319541052361231037502031129764211055505691037502031129764211055505691025685581130947261019799441025406531000524131018944261044373111041626691011391682091855531123928431020717962083006331032576431009776772044373111041626691011391682083006331032576431009776772093355781012920571046569192058534461005552711058945732093355781012920571046569192057299961002319541052361231025406531000524131018944261058534461005552711058945732057299961002319541052361231044373111041626691011391682058534461005552711058945732025406531000524131018944261058534461005552711058945732044373111041626691011391682093355781012920571046569192
 ))
-(define ball-radius 60)
-(define snow-radius 1)
-(define snow-populate-radius '(5 . 37))
-(define snow-num 120)
-(define inner-num 8)
-(define inner-radius '(3 . 8))
-(define inner-populate-radius '(5 . 40))
-(define calgold (make-constant-color (vec-create 0.9922 0.7098 0.0824)))
-(define calblue (make-constant-color (vec-create 0 0.196 0.3943)))
-(define (convert-random min max num)
-  ; Rescales a random number to be within the range (-max, -min) or (min, max)
-  (define newval (* 2 (if (> num 0.5) (- num 0.5) num)))
-  (define sign (if (> num 0.5) -1 1))
-  (* sign (rescale 0 1 min max newval)))
 (define objects (filter (lambda (x) (not (null? x)))
   (reduce append (list
     (list ; Normal objects
-      (sphere-create ball-radius (vec-create 0 0 0)
-        (material-create (make-constant-color vec-zero) (vec-create 0.9 0.9 0.9)  (vec-create 1 1 1) 1.5))
-      (disk-create (vec-create 0 0 0) (vec-create 0 1 0) (* 1.5 ball-radius)
-        (material-create calblue vec-zero vec-zero 1))
-      (disk-create (vec-create 0 0.00001 0) (vec-create 0 1 0) ball-radius
-        (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1)))
+      (sphere-create 60 vec-zero
+        (material-create vec-zero (vec-create 0.9 0.9 0.9) vec-one 1.1))
+      (disk-create (vec-create 0 0 0) (vec-create 0 1 0) 90
+        (diffuse-material-create (vec-create 0 0.196 0.3943)))
+      (disk-create (vec-create 0 0.00001 0) (vec-create 0 1 0) 60
+        (diffuse-material-create vec-one)))
     (map ; Snow!
      (lambda (coord)
-       (define scaledcoord
-         (vec-create
-            (convert-random (car snow-populate-radius) (cdr snow-populate-radius) (vec-x coord))
-            (rescale 0 1 10 (cdr snow-populate-radius) (vec-y coord))
-            (convert-random (car snow-populate-radius) (cdr snow-populate-radius) (vec-z coord))))
        ;nil)
-       (sphere-create snow-radius scaledcoord
-                          (material-create (make-constant-color (vec-create 1 1 1)) vec-zero vec-zero 1)))
-     (ngroup (random-gen 1868 (* 3 snow-num)) 3))
+       (sphere-create 1
+         (vec-create
+           (rescale 0 1 -37 37 (vec-x coord))
+           (rescale 0 1 10 37 (vec-y coord))
+           (rescale 0 1 -37 37 (vec-z coord)))
+         (diffuse-material-create vec-one)))
+     (ngroup (random-gen 1868 360) 3))
     (map ; Spheres
      (lambda (coord)
-       (define scaledradius (rescale 0 1 (car inner-radius) (cdr inner-radius) (vec-y coord)))
-       (define scaledcoord
-         (vec-create
-          (convert-random (car inner-populate-radius) (cdr inner-populate-radius) (vec-x coord))
-          scaledradius
-          (convert-random (car inner-populate-radius) (cdr inner-populate-radius) (vec-z coord))))
+       (define scaledradius (rescale 0 1 3 8 (vec-y coord)))
        ;nil)
-       (sphere-create scaledradius scaledcoord
-                          (material-create calblue vec-zero vec-zero 1)))
-     (ngroup (random-gen 1234567 (* 3 inner-num)) 3))
+       (sphere-create scaledradius
+         (vec-create
+          (rescale 0 1 -40 40 (vec-x coord))
+          scaledradius
+          (rescale 0 1 -40 40 (vec-z coord)))
+         (diffuse-material-create (vec-create 0 0.196 0.3943))))
+     (ngroup (random-gen 2018150 24) 3))
     (map ; Mesh objects
       (lambda (num)
-        (define coords (num-to-coords num))
-        (display "Found ")
-        (display (/ (length coords) 3))
-        (display " faces\n")
         ;nil)
-        (mesh-create coords (material-create calgold vec-zero vec-zero 1)))
+        (mesh-create (num-to-coords num) (diffuse-material-create (vec-create 0.9922 0.7098 0.0824))))
       meshes)))))
 
 ; Main draw function
 (define (draw)
-  (display "Starting draw\n")
+  '( (2018) (-) (1868) (=) (150) )
+  (display "Starting draw ")
+  (display (list (screen_width) (screen_height)))
+  (display "\n")
   ; Loops over all the pixels in the image and sets each one's color
   (loop-range 0 (screen_width)
     (lambda (x)
       (loop-range 0 (screen_height)
         (lambda (y)
-          (pixel x y (vec-rgb (pixel-trace x y)))))
+          (pixel x y (apply rgb (pixel-trace x y)))))
+      (display "Line finished! ")
       (display (quotient (* 100 x) (screen_width)))
-      (display "%\n")))
+      (display "% done\n")))
   (exitonclick))
 
 ; Please leave this last line alone.  You may add additional procedures above
