@@ -16,22 +16,22 @@
 ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading
 
 ; Uncomment for running in racket
-#lang racket
-(require racket/draw)
-(define (screen_width) 300)
-(define (screen_height) 300)
-(define target (make-bitmap (screen_width) (screen_height)))
-(define dc (new bitmap-dc% [bitmap target]))
-(define (exitonclick) (send target save-file "output.png" 'png))
-(send dc set-pen "" 0 'transparent)
-(define (pixel x y color)
- (send dc set-pixel x (- (screen_height) 1 y) color))
-(define (rgb r g b)
- (make-object color%
-   (exact-round (exact->inexact (* 255 r)))
-   (exact-round (exact->inexact (* 255 g)))
-   (exact-round (exact->inexact (* 255 b)))))
-(define nil '())
+;#lang racket
+;(require racket/draw)
+;(define (screen_width) 1000)
+;(define (screen_height) 1000)
+;(define target (make-bitmap (screen_width) (screen_height)))
+;(define dc (new bitmap-dc% [bitmap target]))
+;(define (exitonclick) (send target save-file "output.png" 'png))
+;(send dc set-pen "" 0 'transparent)
+;(define (pixel x y color)
+; (send dc set-pixel x (- (screen_height) 1 y) color))
+;(define (rgb r g b)
+; (make-object color%
+;   (exact-round (exact->inexact (* 255 r)))
+;   (exact-round (exact->inexact (* 255 g)))
+;   (exact-round (exact->inexact (* 255 b)))))
+;(define nil '())
 
 ; General utils
 (define (rescale oldmin oldmax newmin newmax val)
@@ -215,8 +215,8 @@
 (define (disk-plane disk) (cadr (object-properties disk)))
 ; Spheres
 ; Sphere properties: (radius position)
-(define (sphere-create radius vec material)
-  (object-create sphere-intersect (list radius vec) material))
+(define (sphere-create radius vec half? material)
+  (object-create sphere-intersect (list radius vec half?) material))
 (define (sphere-intersect sphere ray)
   (define radius (sphere-radius sphere))
   (define position (sphere-position sphere))
@@ -240,9 +240,12 @@
              nil
              (let
                ((phit (vec-add origin (vec-mul direction t))))
-               (ray-create phit (vec-sub phit position))))))))
+               (if (and (< (vec-y phit) (vec-y position)) (sphere-half sphere))
+                 nil
+                 (ray-create phit (vec-sub phit position)))))))))
 (define (sphere-radius sphere) (car (object-properties sphere)))
 (define (sphere-position sphere) (cadr (object-properties sphere)))
+(define (sphere-half sphere) (caddr (object-properties sphere)))
 ; Triangles
 ; Triangle properties: (p1 p2 p3 plane)
 ; Basically another constrained plane
@@ -537,8 +540,16 @@
    (ray-create (vec-create 0 50 0) vec-one)))
 (define (sky-color ray)
   ; Makes a gradient-ish thing
-  (define color1 (vec-create 0.8 0.8 0.8))
-  (define color2 (vec-create 0 0.6902 0.8549))
+
+  ; Dark
+  ;(define color1 (vec-create 0.1529 0.0588 0.2118))
+  ;(define color2 (vec-create 1 0.7569 0.6235))
+  ; Light blue/white
+  ;(define color1 (vec-create 0 0.6902 0.8549))
+  ;(define color2 (vec-create 0.8 0.8 0.8))
+  ; Grey
+  (define color1 (vec-create 0.3255 0.3843 0.4353))
+  (define color2 (vec-create 0.2 0.2 0.2))
   (define yval (/ (+ (vec-y (ray-orig ray)) (* 250 (vec-y (ray-dir ray)))) 100))
   (define interp (clamp 0 1 yval))
   (map
@@ -562,11 +573,9 @@
 (define objects (filter (lambda (x) (not (null? x)))
   (reduce append (list
     (list ; Normal objects
-      (sphere-create 60 vec-zero
-        (material-create vec-zero (vec-create 0.9 0.9 0.9) vec-one 1.1))
-      (disk-create (vec-create 0 0 0) (vec-create 0 1 0) 90
-        (diffuse-material-create (vec-create 0 0.196 0.3943)))
-      (disk-create (vec-create 0 0.00001 0) (vec-create 0 1 0) 60
+      (sphere-create 60 vec-zero #t
+        (material-create vec-zero (vec-create 0.9 0.9 0.9) vec-one 1.25))
+      (disk-create (vec-create 0 0 0) (vec-create 0 1 0) 60
         (diffuse-material-create vec-one)))
     (map ; Snow!
      (lambda (coord)
@@ -575,7 +584,7 @@
          (vec-create
            (rescale 0 1 -37 37 (vec-x coord))
            (rescale 0 1 10 37 (vec-y coord))
-           (rescale 0 1 -37 37 (vec-z coord)))
+           (rescale 0 1 -37 37 (vec-z coord))) #f
          (diffuse-material-create vec-one)))
      (ngroup (random-gen 1868 360) 3))
     (map ; Spheres
@@ -586,7 +595,7 @@
          (vec-create
           (rescale 0 1 -40 40 (vec-x coord))
           scaledradius
-          (rescale 0 1 -40 40 (vec-z coord)))
+          (rescale 0 1 -40 40 (vec-z coord))) #f
          (diffuse-material-create (vec-create 0 0.196 0.3943))))
      (ngroup (random-gen 2018150 24) 3))
     (map ; Mesh objects
@@ -597,9 +606,8 @@
 
 ; Main draw function
 (define (draw)
-  '( (2018) (-) (1868) (=) (150) )
   (display "Starting draw ")
-  (display (list (screen_width) (screen_height)))
+  (display `(,(screen_width) ,(screen_height)))
   (display "\n")
   ; Loops over all the pixels in the image and sets each one's color
   (loop-range 0 (screen_width)
