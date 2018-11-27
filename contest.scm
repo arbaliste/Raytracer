@@ -16,22 +16,22 @@
 ; https://www.scratchapixel.com/lessons/3d-basic-rendering/introduction-to-shading
 
 ; Uncomment for running in racket
-;#lang racket
-;(require racket/draw)
-;(define (screen_width) 1000)
-;(define (screen_height) 1000)
-;(define target (make-bitmap (screen_width) (screen_height)))
-;(define dc (new bitmap-dc% [bitmap target]))
-;(define (exitonclick) (send target save-file "output.png" 'png))
-;(send dc set-pen "" 0 'transparent)
-;(define (pixel x y color)
-; (send dc set-pixel x (- (screen_height) 1 y) color))
-;(define (rgb r g b)
-; (make-object color%
-;   (exact-round (exact->inexact (* 255 r)))
-;   (exact-round (exact->inexact (* 255 g)))
-;   (exact-round (exact->inexact (* 255 b)))))
-;(define nil '())
+#lang racket
+(require racket/draw)
+(define (screen_width) 1000)
+(define (screen_height) 1000)
+(define target (make-bitmap (screen_width) (screen_height)))
+(define dc (new bitmap-dc% [bitmap target]))
+(define (exitonclick) (send target save-file "output.png" 'png))
+(send dc set-pen "" 0 'transparent)
+(define (pixel x y color)
+ (send dc set-pixel x (- (screen_height) 1 y) color))
+(define (rgb r g b)
+ (make-object color%
+   (exact-round (exact->inexact (* 255 r)))
+   (exact-round (exact->inexact (* 255 g)))
+   (exact-round (exact->inexact (* 255 b)))))
+(define nil '())
 
 ; General utils
 (define (rescale oldmin oldmax newmin newmax val)
@@ -540,22 +540,10 @@
    (ray-create (vec-create 0 50 0) vec-one)))
 (define (sky-color ray)
   ; Makes a gradient-ish thing
-
-  ; Dark
-  ;(define color1 (vec-create 0.1529 0.0588 0.2118))
-  ;(define color2 (vec-create 1 0.7569 0.6235))
-  ; Light blue/white
-  ;(define color1 (vec-create 0 0.6902 0.8549))
-  ;(define color2 (vec-create 0.8 0.8 0.8))
-  ; Grey
-  (define color1 (vec-create 0.3255 0.3843 0.4353))
-  (define color2 (vec-create 0.2 0.2 0.2))
-  (define yval (/ (+ (vec-y (ray-orig ray)) (* 250 (vec-y (ray-dir ray)))) 100))
-  (define interp (clamp 0 1 yval))
   (map
     (lambda (x)
-      (+ (car x) (* (- (cadr x) (car x)) interp)))
-    (zip (list color1 color2))))
+      (+ (car x) (* (- (cadr x) (car x)) (clamp 0 1 (/ (+ (vec-y (ray-orig ray)) (* 250 (vec-y (ray-dir ray)))) 100)))))
+    (zip '((0.3922 0.1686 0.4196) (0.7843 0.4196 0.5961)))))
 (define meshes (list ; Go bEaRs!
 ; bear-leg4
 041973142042312051005567432074614772039374801014195442067274712134982511033096242041973142042312051005567432093570182018218851045818382074614772039374801014195442041973142042312051005567432033940112005804711047072542093570182018218851045818382041973142042312051005567432029598152136541121007526762033214752130980111053919141029598152136541121007526762041973142042312051005567432067274712134982511033096242057669132003080081052531351062513452144874381067899301099733102003176731028516901062513452144874381067899301057669132003080081052531351028166372000979081023144411033214752130980111053919141062513452144874381067899301028166372000979081023144411028166372000979081023144411041973142042312051005567432033214752130980111053919141073374882005808861055178962033940112005804711047072542099733102003176731028516901041973142042312051005567432028166372000979081023144411033940112005804711047072542028166372000979081023144411057669132003080081052531351099733102003176731028516901033940112005804711047072542028166372000979081023144411099733102003176731028516901062513452144874381067899301094972462182143671062129391099733102003176731028516901067274712134982511033096242099733102003176731028516901122012502251768741032769552099733102003176731028516901067274712134982511033096242074614772039374801014195442093570182018218851045818382073374882005808861055178962099733102003176731028516901074614772039374801014195442093570182018218851045818382099733102003176731028516901033940112005804711047072542073374882005808861055178962093570182018218851045818382094972462182143671062129391122012502251768741032769552099733102003176731028516901
@@ -574,8 +562,10 @@
   (reduce append (list
     (list ; Normal objects
       (sphere-create 60 vec-zero #t
-        (material-create vec-zero (vec-create 0.9 0.9 0.9) vec-one 1.25))
-      (disk-create (vec-create 0 0 0) (vec-create 0 1 0) 60
+        (material-create vec-zero (vec-create 0.7 0.7 0.7) vec-one 1.25))
+      (disk-create vec-zero (vec-create 0 1 0) 90
+         (diffuse-material-create (vec-create 0.1529 0.0588 0.2118)))
+      (disk-create (vec-create 0 0.00001 0) (vec-create 0 1 0) 60
         (diffuse-material-create vec-one)))
     (map ; Snow!
      (lambda (coord)
@@ -607,7 +597,7 @@
 ; Main draw function
 (define (draw)
   (display "Starting draw ")
-  (display `(,(screen_width) ,(screen_height)))
+  (display `((,(screen_width) ,(screen_height))))
   (display "\n")
   ; Loops over all the pixels in the image and sets each one's color
   (loop-range 0 (screen_width)
